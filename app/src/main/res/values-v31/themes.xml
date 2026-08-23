@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Heimdall" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/dark_background</item>
+        <item name="android:statusBarColor">@color/dark_background</item>
+        <item name="android:navigationBarColor">@color/dark_background</item>
+    </style>
+
+    <style name="Theme.Heimdall.Splash" parent="Theme.Heimdall">
+        <item name="android:windowSplashScreenBackground">@color/dark_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_heimdall_eye</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/dark_background</item>
+    </style>
+</resources>
