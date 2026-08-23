@@ -1,58 +1,47 @@
-# Heimdall 👁️🛡️
+# heimdall 👁️🛡️
 
-> **The All-Seeing Local SMS Gatekeeper & Spam Shield for Android**
-
-Heimdall is a private, lightweight, and local SMS inspection companion built for Android using Kotlin and Jetpack Compose. It detects fraudulent and promotional text messages using customizable keyword filters while protecting clean communications.
+> Lightweight, 100% offline SMS spam shield and smart OTP companion for Android.
 
 ---
 
-## ⚡ Features
+## ✨ Features
 
-* **100% Offline & Private**: Zero internet permission (`android.permission.INTERNET` is not included). Your SMS data never leaves your hardware.
-* **Smart Keyword Engine**: User-managed customizable keyword rules (e.g. `loan`, `crypto`, `kyc`, `lottery`, `bonus`).
-* **Smart OTP Extraction**: Intelligently detects verification codes and enables **1-tap OTP copy** directly from notification banners and message details.
-* **Companion Notification System**: Pushes companion alert banners (`⚠️ Sender` for spam, `🛡️ Sender` for verified clean messages) with zero disruption to default SMS routing.
-* **Futuristic Cyber-Minimalist UI**: Deep obsidian dark mode (`#121214`) with sharp geometric styling and electric amber accents adhering to an 8px layout grid.
-* **Message Details Modal**: Full scrollable inspection modal with dynamic 1-tap OTP copying and instant deletion.
-
----
-
-## 🛠️ Tech Stack & Architecture
-
-* **Language**: Kotlin 2.0
-* **UI Toolkit**: Jetpack Compose (Material 3)
-* **SDK Compatibility**: Min SDK 26 (Android 8.0 Oreo) | Target SDK 34 (Android 14/15)
-* **Storage**: Local Android `SharedPreferences` (JSON encrypted sandbox)
-* **Telephony Stack**: Native Android `Telephony.Sms.Intents` Broadcast Receiver & `NotificationCompat`
+* **🔒 100% Offline & Private**: Zero internet permissions (`android.permission.INTERNET` is not requested). Your SMS messages and data never leave your device.
+* **🔍 Keyword Spam Engine**: Real-time inspection matching against customizable keywords (`loan`, `crypto`, `winner`, `kyc`, etc.).
+* **⚡ Smart OTP 1-Tap Copy**: Intelligently extracts verification codes and renders a direct **`[ Copy 123456 ]`** action button on notification banners and message details.
+* **📬 Companion Alert Feed**: Non-intrusive companion notifications (`⚠️ Sender` / `🛡️ Sender`) and a clean messenger-style inbox without altering your default messaging app.
+* **🖤 Futuristic Cyber UI**: Pure dark obsidian theme (`#121214`) with electric amber accents, strict 8px layout grid, and instant stealth startup.
+* **🗑️ Safe Deletion**: Purge all spam in 1 tap with confirmation guards for clean messages.
 
 ---
 
-## 🚀 Building & Running Locally
+## 🔮 What's Coming (Roadmap)
 
-### Prerequisites:
-* JDK 17 (Eclipse Temurin or Oracle JDK 17)
-* Android SDK (API 34 + Build Tools)
-
-### Build Debug APK:
-```bash
-./gradlew assembleDebug
-```
-
-### Install Directly via ADB:
-```bash
-./gradlew installDebug
-```
+* [ ] **RCS Notification Listener**: Detect and auto-dismiss rich marketing/promo ads from Google Messages (Jio/RCS).
+* [ ] **Default SMS App Mode**: Total spam suppression—permanently dropping spam texts before they ring or save.
+* [ ] **Contact Whitelist**: Auto-verify known contacts from your address book.
+* [ ] **On-Device Smart ML Classifier**: Local tiny ML model for contextual spam detection beyond exact keywords.
 
 ---
 
 ## 🔒 Permissions Used
-1. `RECEIVE_SMS`: Intercepts incoming cellular SMS broadcasts in real time.
-2. `READ_SMS`: Parses multi-part SMS payloads for keyword analysis.
-3. `POST_NOTIFICATIONS`: Renders Heimdall alert banners on Android 13+.
 
-*Zero network, contacts, storage, camera, or location permissions.*
+| Permission | Purpose |
+| :--- | :--- |
+| `RECEIVE_SMS` | Wakes Heimdall when an incoming cellular text arrives |
+| `READ_SMS` | Inspects message text for keywords and OTP codes |
+| `POST_NOTIFICATIONS` | Displays Heimdall companion alert banners (Android 13+) |
+
+*Zero network, contacts, storage, camera, or location access.*
 
 ---
 
-## 📄 License
-MIT License
+## 🛠️ Build & Install
+
+```bash
+# Build Debug APK
+./gradlew assembleDebug
+
+# Install directly to connected phone
+./gradlew installDebug
+```
