@@ -4,9 +4,11 @@ import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.text.format.DateUtils
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -14,6 +16,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,6 +28,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -32,6 +40,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
@@ -49,8 +58,12 @@ import androidx.core.content.ContextCompat
 import com.heimdall.app.data.InspectedMessage
 import com.heimdall.app.data.PreferencesManager
 import com.heimdall.app.ui.theme.*
+import com.heimdall.app.util.CategoryHelper
+import com.heimdall.app.util.ClickableLinkifiedText
+import com.heimdall.app.util.MessageCategory
 import com.heimdall.app.util.NotificationHelper
 import com.heimdall.app.util.OtpHelper
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -59,47 +72,105 @@ enum class AppScreen {
     SETTINGS
 }
 
+// Static, cached formatters to eliminate garbage collection churn on scroll
+private val TIME_FORMAT = SimpleDateFormat("hh:mm a", Locale.getDefault())
+private val DATE_FORMAT = SimpleDateFormat("dd MMM", Locale.getDefault())
+private val FULL_DATE_FORMAT = SimpleDateFormat("MMM dd, yyyy • hh:mm a", Locale.getDefault())
+
+// Fast O(1) timestamp formatting using Android's native DateUtils without Calendar allocations
+fun formatMessageTimestamp(timestamp: Long): String {
+    return if (DateUtils.isToday(timestamp)) {
+        synchronized(TIME_FORMAT) { TIME_FORMAT.format(Date(timestamp)) }
+    } else {
+        synchronized(DATE_FORMAT) { DATE_FORMAT.format(Date(timestamp)) }
+    }
+}
+
+// Stable UI Model with pre-stored category and formatted time
+@Immutable
+data class UiMessageItem(
+    val raw: InspectedMessage,
+    val category: MessageCategory,
+    val formattedTime: String
+)
+
 class MainActivity : ComponentActivity() {
     private lateinit var prefsManager: PreferencesManager
+    private val notificationTimestamp = mutableStateOf<Long?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefsManager = PreferencesManager(this)
+        handleIntent(intent)
         enableEdgeToEdge()
         setContent {
             HeimdallTheme {
-                HeimdallApp(prefsManager = prefsManager)
+                HeimdallApp(
+                    prefsManager = prefsManager,
+                    directOpenTimestamp = notificationTimestamp.value,
+                    onDirectOpenConsumed = { notificationTimestamp.value = null }
+                )
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent != null && intent.hasExtra(NotificationHelper.EXTRA_MESSAGE_TIMESTAMP)) {
+            val timestamp = intent.getLongExtra(NotificationHelper.EXTRA_MESSAGE_TIMESTAMP, -1L)
+            if (timestamp > 0) {
+                notificationTimestamp.value = timestamp
             }
         }
     }
 }
 
-// Smart timestamp formatter: time for today, date for older days
-fun formatMessageTimestamp(timestamp: Long): String {
-    val now = Calendar.getInstance()
-    val msgCal = Calendar.getInstance().apply { timeInMillis = timestamp }
-
-    val isSameDay = now.get(Calendar.YEAR) == msgCal.get(Calendar.YEAR) &&
-            now.get(Calendar.DAY_OF_YEAR) == msgCal.get(Calendar.DAY_OF_YEAR)
-
-    return if (isSameDay) {
-        SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(timestamp))
-    } else {
-        SimpleDateFormat("dd MMM", Locale.getDefault()).format(Date(timestamp))
-    }
-}
-
 @Composable
-fun HeimdallApp(prefsManager: PreferencesManager) {
+fun HeimdallApp(
+    prefsManager: PreferencesManager,
+    directOpenTimestamp: Long?,
+    onDirectOpenConsumed: () -> Unit
+) {
     val context = LocalContext.current
     var currentScreen by remember { mutableStateOf(AppScreen.INBOX) }
     var inspectedLogs by remember { mutableStateOf(prefsManager.getInspectedMessages()) }
     var keywordsList by remember { mutableStateOf(prefsManager.getKeywords().sorted()) }
-    var isShieldOn by remember { mutableStateOf(prefsManager.isShieldEnabled()) }
+    var isMasterActive by remember { mutableStateOf(prefsManager.isMasterActive()) }
+    var isFilterEnabled by remember { mutableStateOf(prefsManager.isFilterEnabled()) }
+
+    // Instant O(1) Mapping directly from pre-computed fields
+    val uiMessages = remember(inspectedLogs) {
+        inspectedLogs.map { msg ->
+            UiMessageItem(
+                raw = msg,
+                category = MessageCategory.fromString(msg.category),
+                formattedTime = formatMessageTimestamp(msg.timestamp)
+            )
+        }
+    }
 
     // Modal state for viewing full message
     var selectedMessageForModal by remember { mutableStateOf<InspectedMessage?>(null) }
     var cleanMessageToDelete by remember { mutableStateOf<InspectedMessage?>(null) }
+
+    // Auto-open modal when launched from notification
+    LaunchedEffect(directOpenTimestamp) {
+        if (directOpenTimestamp != null && directOpenTimestamp > 0) {
+            val targetMsg = prefsManager.getMessageByTimestamp(directOpenTimestamp)
+            if (targetMsg != null) {
+                prefsManager.markMessageAsRead(targetMsg.timestamp)
+                inspectedLogs = prefsManager.getInspectedMessages()
+                selectedMessageForModal = targetMsg.copy(isRead = true)
+                currentScreen = AppScreen.INBOX
+            }
+            onDirectOpenConsumed()
+        }
+    }
 
     // Permission state
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -122,7 +193,8 @@ fun HeimdallApp(prefsManager: PreferencesManager) {
     LaunchedEffect(currentScreen) {
         inspectedLogs = prefsManager.getInspectedMessages()
         keywordsList = prefsManager.getKeywords().sorted()
-        isShieldOn = prefsManager.isShieldEnabled()
+        isMasterActive = prefsManager.isMasterActive()
+        isFilterEnabled = prefsManager.isFilterEnabled()
     }
 
     BackHandler(enabled = currentScreen == AppScreen.SETTINGS) {
@@ -157,7 +229,7 @@ fun HeimdallApp(prefsManager: PreferencesManager) {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 32.dp) // Standard 32px margin
+                    .padding(horizontal = 32.dp)
                     .border(1.dp, DarkBorder, RectangleShape),
                 shape = RectangleShape,
                 color = DarkSurface
@@ -165,7 +237,7 @@ fun HeimdallApp(prefsManager: PreferencesManager) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(24.dp), // 8px system: 24dp
+                        .padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Row(
@@ -204,7 +276,7 @@ fun HeimdallApp(prefsManager: PreferencesManager) {
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp) // 8px system: 8dp
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         OutlinedButton(
                             onClick = { cleanMessageToDelete = null },
@@ -252,9 +324,18 @@ fun HeimdallApp(prefsManager: PreferencesManager) {
         when (currentScreen) {
             AppScreen.INBOX -> {
                 InboxScreen(
-                    messages = inspectedLogs,
+                    uiMessages = uiMessages,
                     onOpenSettings = { currentScreen = AppScreen.SETTINGS },
-                    onSelectMessage = { message -> selectedMessageForModal = message },
+                    onSelectMessage = { message ->
+                        prefsManager.markMessageAsRead(message.timestamp)
+                        inspectedLogs = prefsManager.getInspectedMessages()
+                        selectedMessageForModal = message.copy(isRead = true)
+                    },
+                    onMarkAllAsRead = {
+                        val count = prefsManager.markAllAsRead()
+                        inspectedLogs = prefsManager.getInspectedMessages()
+                        Toast.makeText(context, "Marked $count message(s) as read", Toast.LENGTH_SHORT).show()
+                    },
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
@@ -263,12 +344,17 @@ fun HeimdallApp(prefsManager: PreferencesManager) {
             AppScreen.SETTINGS -> {
                 SettingsScreen(
                     prefsManager = prefsManager,
-                    isShieldOn = isShieldOn,
+                    isMasterActive = isMasterActive,
+                    isFilterEnabled = isFilterEnabled,
                     keywordsList = keywordsList,
                     messages = inspectedLogs,
-                    onShieldToggle = { enabled ->
-                        isShieldOn = enabled
-                        prefsManager.setShieldEnabled(enabled)
+                    onMasterToggle = { enabled ->
+                        isMasterActive = enabled
+                        prefsManager.setMasterActive(enabled)
+                    },
+                    onFilterToggle = { enabled ->
+                        isFilterEnabled = enabled
+                        prefsManager.setFilterEnabled(enabled)
                     },
                     onKeywordsUpdated = {
                         keywordsList = prefsManager.getKeywords().sorted()
@@ -293,25 +379,60 @@ fun HeimdallApp(prefsManager: PreferencesManager) {
 
 @Composable
 fun InboxScreen(
-    messages: List<InspectedMessage>,
+    uiMessages: List<UiMessageItem>,
     onOpenSettings: () -> Unit,
     onSelectMessage: (InspectedMessage) -> Unit,
+    onMarkAllAsRead: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var showOnlyUnread by remember { mutableStateOf(false) }
+    var rawSearchQuery by remember { mutableStateOf("") }
+    var debouncedSearchQuery by remember { mutableStateOf("") }
+    var visibleItemCount by remember { mutableIntStateOf(25) }
+
+    val unreadCount = remember(uiMessages) { uiMessages.count { !it.raw.isRead } }
+
+    // 200ms Search Debounce
+    LaunchedEffect(rawSearchQuery) {
+        delay(200L)
+        debouncedSearchQuery = rawSearchQuery
+    }
+
+    // Reset pagination when search or unread filter changes
+    LaunchedEffect(debouncedSearchQuery, showOnlyUnread) {
+        visibleItemCount = 25
+    }
+
+    val filteredMessages = remember(uiMessages, showOnlyUnread, debouncedSearchQuery) {
+        uiMessages.filter { item ->
+            val matchesUnread = !showOnlyUnread || !item.raw.isRead
+            val query = debouncedSearchQuery.trim()
+            val matchesSearch = query.isEmpty() ||
+                    item.raw.sender.contains(query, ignoreCase = true) ||
+                    item.raw.body.contains(query, ignoreCase = true)
+            matchesUnread && matchesSearch
+        }
+    }
+
+    val displayedMessages = remember(filteredMessages, visibleItemCount) {
+        filteredMessages.take(visibleItemCount)
+    }
+
+    val remainingCount = filteredMessages.size - displayedMessages.size
+
     Column(modifier = modifier.fillMaxSize()) {
-        // Clean Minimal Header: Raw Icon Glyph + HEIMDALL + Settings Ghost Button
+        // Minimal Top Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 16.dp), // 8px system: 16dp
+                .padding(horizontal = 16.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp) // 8px system: 10dp
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Pure Naked Icon Glyph
                 Icon(
                     imageVector = Icons.Default.RemoveRedEye,
                     contentDescription = null,
@@ -328,7 +449,6 @@ fun InboxScreen(
                 )
             }
 
-            // Borderless Ghost Settings Button
             IconButton(
                 onClick = onOpenSettings,
                 modifier = Modifier.size(40.dp)
@@ -344,8 +464,104 @@ fun InboxScreen(
 
         HorizontalDivider(color = DarkBorder, thickness = 1.dp)
 
-        // Messages Feed
-        if (messages.isEmpty()) {
+        // Minimal Options Bar (Unread Filter Badge + Debounced Search Field)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Unread Filter Toggle Badge
+            Surface(
+                shape = RectangleShape,
+                color = if (showOnlyUnread) YellowAccent else DarkSurface,
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (showOnlyUnread) YellowAccent else DarkBorder
+                ),
+                modifier = Modifier
+                    .height(36.dp)
+                    .clickable { showOnlyUnread = !showOnlyUnread }
+            ) {
+                Box(
+                    modifier = Modifier.padding(horizontal = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (unreadCount > 0) "UNREAD ($unreadCount)" else "UNREAD",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        color = if (showOnlyUnread) DarkBackground else if (unreadCount > 0) YellowAccent else TextMuted
+                    )
+                }
+            }
+
+            // Minimalist Search Bar with Real-time Debounce
+            BasicTextField(
+                value = rawSearchQuery,
+                onValueChange = { rawSearchQuery = it },
+                singleLine = true,
+                textStyle = TextStyle(
+                    color = TextPrimary,
+                    fontSize = 13.sp,
+                    fontFamily = FontFamily.Default
+                ),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(36.dp)
+                    .background(DarkSurface)
+                    .border(
+                        1.dp,
+                        if (rawSearchQuery.isNotEmpty()) YellowAccent else DarkBorder,
+                        RectangleShape
+                    )
+                    .padding(horizontal = 10.dp),
+                decorationBox = { innerTextField ->
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                            if (rawSearchQuery.isEmpty()) {
+                                Text(
+                                    text = "Search messages...",
+                                    color = TextMuted,
+                                    fontSize = 12.sp
+                                )
+                            }
+                            innerTextField()
+                        }
+                        if (rawSearchQuery.isNotEmpty()) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear search",
+                                tint = TextMuted,
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clickable {
+                                        rawSearchQuery = ""
+                                        debouncedSearchQuery = ""
+                                    }
+                            )
+                        }
+                    }
+                }
+            )
+        }
+
+        HorizontalDivider(color = DarkBorder.copy(alpha = 0.5f), thickness = 1.dp)
+
+        // Messages Feed with Recycled Composable Items
+        if (filteredMessages.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -371,7 +587,7 @@ fun InboxScreen(
                         )
                     }
                     Text(
-                        text = "// NO MESSAGES DETECTED",
+                        text = if (showOnlyUnread) "// NO UNREAD MESSAGES" else if (debouncedSearchQuery.isNotEmpty()) "// NO MATCHES FOUND" else "// NO MESSAGES DETECTED",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
@@ -379,7 +595,7 @@ fun InboxScreen(
                         color = TextSecondary
                     )
                     Text(
-                        text = "Incoming SMS messages will be intercepted and logged here.\nTap Settings to test or manage keywords.",
+                        text = if (showOnlyUnread) "All messages have been reviewed." else if (debouncedSearchQuery.isNotEmpty()) "Try a different search query." else "Incoming SMS messages will be intercepted and logged here.",
                         fontSize = 13.sp,
                         color = TextMuted,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -392,48 +608,120 @@ fun InboxScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(vertical = 4.dp)
             ) {
-                items(messages, key = { it.timestamp }) { message ->
+                items(
+                    items = displayedMessages,
+                    key = { it.raw.timestamp },
+                    contentType = { "message_row" }
+                ) { item ->
                     InboxMessageRow(
-                        message = message,
-                        onClick = { onSelectMessage(message) }
+                        item = item,
+                        onClick = { onSelectMessage(item.raw) }
                     )
                     HorizontalDivider(color = DarkBorder.copy(alpha = 0.4f), thickness = 1.dp)
+                }
+
+                // Show More Pagination Button
+                if (remainingCount > 0) {
+                    item(contentType = "pagination_button") {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            OutlinedButton(
+                                onClick = { visibleItemCount += 25 },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp),
+                                shape = RectangleShape,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = YellowAccent)
+                            ) {
+                                Text(
+                                    text = "SHOW MORE (${if (remainingCount > 25) "+25" else remainingCount} of $remainingCount REMAINING)",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    letterSpacing = 1.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Mark All As Read Option
+                if (showOnlyUnread && unreadCount > 0) {
+                    item(contentType = "mark_read_button") {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Button(
+                                onClick = onMarkAllAsRead,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp),
+                                shape = RectangleShape,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = YellowAccent.copy(alpha = 0.15f),
+                                    contentColor = YellowAccent
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, YellowAccent.copy(alpha = 0.4f))
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DoneAll,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "MARK ALL AS READ ($unreadCount)",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    letterSpacing = 1.sp
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 }
 
+// 100% O(1) Fast Composable Row
 @Composable
 fun InboxMessageRow(
-    message: InspectedMessage,
+    item: UiMessageItem,
     onClick: () -> Unit
 ) {
-    val displayTimestamp = remember(message.timestamp) { formatMessageTimestamp(message.timestamp) }
+    val message = item.raw
+    val category = item.category
+    val displayTimestamp = item.formattedTime
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 14.dp), // 8px system
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Geometric Status Indicator Box with 1px Border
+        // Unified Dark Surface Background
         Box(
             modifier = Modifier
                 .size(36.dp)
-                .background(if (message.isSpam) YellowAccentSubtle else DarkSurfaceVariant)
-                .border(
-                    1.dp,
-                    if (message.isSpam) YellowAccent.copy(alpha = 0.5f) else DarkBorder,
-                    RectangleShape
-                ),
+                .background(DarkSurfaceVariant)
+                .border(1.dp, DarkBorder, RectangleShape),
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = if (message.isSpam) "⚠️" else "🛡️",
-                fontSize = 15.sp
+                text = category.emoji,
+                fontSize = 16.sp
             )
         }
 
@@ -454,8 +742,8 @@ fun InboxMessageRow(
                     Text(
                         text = message.sender,
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
+                        fontWeight = if (!message.isRead) FontWeight.Black else FontWeight.Bold,
+                        color = if (!message.isRead) TextPrimary else TextSecondary
                     )
                     if (message.isSpam && !message.matchedKeyword.isNullOrEmpty()) {
                         Surface(
@@ -475,38 +763,43 @@ fun InboxMessageRow(
                     }
                 }
 
-                // Smart Timestamp (Time if today, Date if older)
-                Text(
-                    text = displayTimestamp,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = TextMuted
-                )
+                // Timestamp + Minimal Unread Dot
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = displayTimestamp,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = if (!message.isRead) YellowAccent else TextMuted
+                    )
+
+                    // Minimal Unread Indicator Dot
+                    if (!message.isRead) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .background(YellowAccent, CircleShape)
+                        )
+                    }
+                }
             }
 
             Text(
                 text = message.body,
                 fontSize = 13.sp,
-                color = TextSecondary,
+                color = if (!message.isRead) TextPrimary else TextSecondary,
+                fontWeight = if (!message.isRead) FontWeight.Medium else FontWeight.Normal,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 18.sp
             )
         }
-
-        // Minimalist Chevron
-        Icon(
-            imageVector = Icons.Default.ChevronRight,
-            contentDescription = "View Details",
-            tint = TextMuted,
-            modifier = Modifier
-                .size(18.dp)
-                .align(Alignment.CenterVertically)
-        )
     }
 }
 
-// Standardized Wide Message Details Modal (Strictly 2 buttons: [COPY / COPY <OTP>] and [DELETE])
+// Standardized Wide Message Details Modal
 @Composable
 fun MessageDetailModal(
     message: InspectedMessage,
@@ -514,9 +807,11 @@ fun MessageDetailModal(
     onDelete: () -> Unit
 ) {
     val context = LocalContext.current
-    val fullTimeFormat = remember { SimpleDateFormat("MMM dd, yyyy • hh:mm a", Locale.getDefault()) }
-    val fullTimeString = remember(message.timestamp) { fullTimeFormat.format(Date(message.timestamp)) }
+    val fullTimeString = remember(message.timestamp) {
+        synchronized(FULL_DATE_FORMAT) { FULL_DATE_FORMAT.format(Date(message.timestamp)) }
+    }
     val extractedOtp = remember(message.body) { OtpHelper.extractOtp(message.body) }
+    val category = remember(message.category) { MessageCategory.fromString(message.category) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -525,7 +820,7 @@ fun MessageDetailModal(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 32.dp) // Standard 32px margin
+                .padding(horizontal = 32.dp)
                 .border(1.dp, DarkBorder, RectangleShape),
             shape = RectangleShape,
             color = DarkSurface
@@ -533,10 +828,10 @@ fun MessageDetailModal(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(24.dp), // 8px system: 24dp
-                verticalArrangement = Arrangement.spacedBy(16.dp) // 8px system: 16dp
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Header: // SENDER NAME in yellow monospace, Emoji + Timestamp below it
+                // Header: // SENDER NAME in yellow monospace, Category + Timestamp below it
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -552,17 +847,17 @@ fun MessageDetailModal(
                             color = YellowAccent
                         )
 
-                        // Emoji & Timestamp below sender name
+                        // Category & Timestamp below sender name
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = if (message.isSpam) "⚠️ SPAM [${message.matchedKeyword?.uppercase() ?: ""}]" else "🛡️ CLEAN",
+                                text = "${category.emoji} ${category.label}${if (message.isSpam && !message.matchedKeyword.isNullOrEmpty()) " [${message.matchedKeyword.uppercase()}]" else ""}",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace,
-                                color = if (message.isSpam) YellowAccent else TextSecondary
+                                color = if (message.isSpam || category == MessageCategory.OTP) YellowAccent else TextSecondary
                             )
                             Text(
                                 text = "•",
@@ -591,7 +886,7 @@ fun MessageDetailModal(
                     }
                 }
 
-                // Message Text in Dark Container
+                // Message Text in Dark Container with Clickable Links and Phone Numbers
                 Surface(
                     shape = RectangleShape,
                     color = DarkBackground,
@@ -600,10 +895,9 @@ fun MessageDetailModal(
                         .fillMaxWidth()
                         .heightIn(max = 240.dp)
                 ) {
-                    Text(
+                    ClickableLinkifiedText(
                         text = message.body,
                         fontSize = 14.sp,
-                        color = TextPrimary,
                         lineHeight = 22.sp,
                         modifier = Modifier
                             .padding(16.dp)
@@ -611,66 +905,118 @@ fun MessageDetailModal(
                     )
                 }
 
-                // Strictly 2 Action Buttons: [COPY / COPY <OTP>] and [DELETE]
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Smart Copy Button: copies OTP if present, otherwise copies full message
-                    OutlinedButton(
-                        onClick = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            if (extractedOtp != null) {
+                // Action Buttons Layout
+                if (extractedOtp != null) {
+                    // OTP Layout: 2 Full-Width Lines
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Line 1: Full-Width Copy OTP Button
+                        OutlinedButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 val clip = ClipData.newPlainText("OTP Code", extractedOtp)
                                 clipboard.setPrimaryClip(clip)
                                 Toast.makeText(context, "Copied OTP: $extractedOtp", Toast.LENGTH_SHORT).show()
-                            } else {
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
+                            shape = RectangleShape,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "COPY $extractedOtp",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                letterSpacing = 1.sp
+                            )
+                        }
+
+                        // Line 2: Full-Width Delete Button
+                        Button(
+                            onClick = onDelete,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
+                            shape = RectangleShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (message.isSpam) YellowAccent else Color(0xFFEF4444).copy(alpha = 0.2f),
+                                contentColor = if (message.isSpam) DarkBackground else Color(0xFFEF4444)
+                            ),
+                            border = if (!message.isSpam) androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f)) else null
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DeleteOutline,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("DELETE", fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 1.sp)
+                        }
+                    }
+                } else {
+                    // Normal Message Layout: Side-by-Side Symmetrical Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 val clip = ClipData.newPlainText("Heimdall SMS", message.body)
                                 clipboard.setPrimaryClip(clip)
                                 Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp),
-                        shape = RectangleShape,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ContentCopy,
-                            contentDescription = null,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (extractedOtp != null) "COPY $extractedOtp" else "COPY",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            letterSpacing = 1.sp
-                        )
-                    }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp),
+                            shape = RectangleShape,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "COPY",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                letterSpacing = 1.sp
+                            )
+                        }
 
-                    // Delete Button
-                    Button(
-                        onClick = onDelete,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp),
-                        shape = RectangleShape,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (message.isSpam) YellowAccent else Color(0xFFEF4444).copy(alpha = 0.2f),
-                            contentColor = if (message.isSpam) DarkBackground else Color(0xFFEF4444)
-                        ),
-                        border = if (!message.isSpam) androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f)) else null
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.DeleteOutline,
-                            contentDescription = null,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("DELETE", fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 1.sp)
+                        Button(
+                            onClick = onDelete,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp),
+                            shape = RectangleShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (message.isSpam) YellowAccent else Color(0xFFEF4444).copy(alpha = 0.2f),
+                                contentColor = if (message.isSpam) DarkBackground else Color(0xFFEF4444)
+                            ),
+                            border = if (!message.isSpam) androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f)) else null
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DeleteOutline,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("DELETE", fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 1.sp)
+                        }
                     }
                 }
             }
@@ -682,10 +1028,12 @@ fun MessageDetailModal(
 @Composable
 fun SettingsScreen(
     prefsManager: PreferencesManager,
-    isShieldOn: Boolean,
+    isMasterActive: Boolean,
+    isFilterEnabled: Boolean,
     keywordsList: List<String>,
     messages: List<InspectedMessage>,
-    onShieldToggle: (Boolean) -> Unit,
+    onMasterToggle: (Boolean) -> Unit,
+    onFilterToggle: (Boolean) -> Unit,
     onKeywordsUpdated: () -> Unit,
     onDeleteAllSpam: () -> Unit,
     onSimulateTest: (Boolean) -> Unit,
@@ -695,6 +1043,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
     var newKeywordText by remember { mutableStateOf("") }
+    var isAdvancedExpanded by remember { mutableStateOf(false) }
     val spamCount = remember(messages) { messages.count { it.isSpam } }
 
     val onAddKeyword = {
@@ -712,39 +1061,69 @@ fun SettingsScreen(
         }
     }
 
-    val onRunSimulation = { isSpam: Boolean, isOtp: Boolean ->
-        val sender = when {
-            isOtp -> "HDFC-BANK"
-            isSpam -> "987521376514"
-            else -> "+919876543210"
-        }
-        val body = when {
-            isOtp -> "Your secret OTP for transaction of Rs. 4,500 is 21321. Valid for 10 mins. Do not share."
-            isSpam -> "Congratulations! Your pre-approved personal loan of Rs. 5,00,000 is ready. Apply now."
-            else -> "Hey Rahul, are you free for a quick call today afternoon?"
-        }
-        val matched = if (isSpam) "loan" else null
+    val onRunSimulation = { testType: String ->
+        val timestamp = System.currentTimeMillis()
+        var sender = "+919876543210"
+        var body = "Hey Rahul, are you free for a quick call today afternoon?"
+        var isSpamRequested = false
 
-        if (isSpam) prefsManager.incrementBlockedCount()
+        when (testType) {
+            "TRAVEL" -> {
+                sender = "INDIGO"
+                body = "Your IndiGo flight 6E-204 from BLR to DEL is confirmed. PNR: W8KJ9L. Terminal 2, Gate 4B."
+            }
+            "DELIVERY" -> {
+                sender = "CP-DCTHLN-S"
+                body = "Your order(30096214) is ready for pickup. Please use 5924 valid for 48 hours only during pick up. Share the OTP at CRM or drive-thru zone to collect your order."
+            }
+            "CARD" -> {
+                sender = "AD-AXISBK-S"
+                body = "Spent INR 418 on Axis Bank Card no. XX0665 at SWIGGY PVT. Avl Limit: INR 119709.88. SMS BLOCK 0665 to 919951860002"
+            }
+            "BANK" -> {
+                sender = "AX-FEDBNK-T"
+                body = "Debited Rs 4.24 from a/c XX8939 on 28AUG2026 16:03:46. Bal Rs 19216.98. Not you? Call 18004251199 -Federal Bank"
+            }
+            "OTP" -> {
+                sender = "JM-HDFCBK-S"
+                body = "OTP is 825849 for txn of INR 1998.00 at DECATHLON on HDFC Bank card ending 7952. Valid till 11:41. Do not share OTP."
+            }
+            "SPAM" -> {
+                sender = "987521376514"
+                body = "Congratulations! Your pre-approved personal loan of Rs. 5,00,000 is ready. Apply now."
+                isSpamRequested = true
+            }
+        }
+
+        // Only mark as spam if the Spam Filter sub-toggle is ON
+        val effectiveIsSpam = isSpamRequested && isFilterEnabled
+        val matched = if (effectiveIsSpam) "loan" else null
+
+        if (effectiveIsSpam) prefsManager.incrementBlockedCount()
+
+        val category = CategoryHelper.detectCategory(sender, body, effectiveIsSpam)
 
         val msg = InspectedMessage(
-            timestamp = System.currentTimeMillis(),
+            timestamp = timestamp,
             sender = sender,
             body = body,
-            isSpam = isSpam,
-            matchedKeyword = matched
+            isSpam = effectiveIsSpam,
+            matchedKeyword = matched,
+            isRead = false,
+            category = category.name
         )
         prefsManager.addInspectedMessage(msg)
-        onSimulateTest(isSpam)
+        onSimulateTest(effectiveIsSpam)
 
         NotificationHelper.showInspectionNotification(
             context = context,
             sender = sender,
             body = body,
-            isSpam = isSpam,
-            matchedKeyword = matched
+            isSpam = effectiveIsSpam,
+            matchedKeyword = matched,
+            timestamp = timestamp
         )
-        Toast.makeText(context, "Pushed ${if (isOtp) "OTP 🔑" else if (isSpam) "SPAM ⚠️" else "CLEAN 🛡️"} alert", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Pushed $testType test alert", Toast.LENGTH_SHORT).show()
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -752,7 +1131,7 @@ fun SettingsScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 16.dp), // 8px system: 16dp
+                .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -781,11 +1160,11 @@ fun SettingsScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp), // 8px system: 16dp
+                .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
-            // Master Shield Row
+            // Master Active Switch & Expandable Advanced Card
             item {
                 Surface(
                     modifier = Modifier
@@ -794,14 +1173,15 @@ fun SettingsScreen(
                     shape = RectangleShape,
                     color = DarkSurface
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp), // 8px system
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Clean Master Active Row
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
                             Text(
                                 text = "ACTIVE",
                                 fontSize = 15.sp,
@@ -809,41 +1189,121 @@ fun SettingsScreen(
                                 letterSpacing = 1.sp,
                                 color = TextPrimary
                             )
-                            Text(
-                                text = if (isShieldOn) "// SHIELD RUNNING" else "// SHIELD PAUSED",
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = if (isShieldOn) YellowAccent else TextMuted
+
+                            Switch(
+                                checked = isMasterActive,
+                                onCheckedChange = onMasterToggle,
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = DarkBackground,
+                                    checkedTrackColor = YellowAccent,
+                                    uncheckedThumbColor = TextMuted,
+                                    uncheckedTrackColor = DarkSurfaceVariant
+                                )
                             )
                         }
 
-                        Switch(
-                            checked = isShieldOn,
-                            onCheckedChange = onShieldToggle,
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = DarkBackground,
-                                checkedTrackColor = YellowAccent,
-                                uncheckedThumbColor = TextMuted,
-                                uncheckedTrackColor = DarkSurfaceVariant
+                        HorizontalDivider(color = DarkBorder.copy(alpha = 0.5f), thickness = 1.dp)
+
+                        // Simplified Expandable Advanced Header
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isAdvancedExpanded = !isAdvancedExpanded }
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "// ADVANCED",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = if (isMasterActive) YellowAccent else TextMuted
                             )
-                        )
+
+                            Icon(
+                                imageVector = if (isAdvancedExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Toggle Advanced",
+                                tint = if (isMasterActive) YellowAccent else TextMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        // Advanced Sub-Settings Dropdown
+                        AnimatedVisibility(
+                            visible = isAdvancedExpanded,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(DarkBackground.copy(alpha = 0.5f))
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                                    .alpha(if (isMasterActive) 1f else 0.4f),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                // Sub-toggle: SPAM FILTER
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Text(
+                                            text = "SPAM FILTER",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 0.5.sp,
+                                            color = TextPrimary
+                                        )
+                                        Text(
+                                            text = if (isFilterEnabled) "Scan incoming SMS for spam keywords" else "Filter disabled (SMS & alerts still active)",
+                                            fontSize = 11.sp,
+                                            color = TextMuted,
+                                            lineHeight = 15.sp
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(12.dp))
+
+                                    Switch(
+                                        checked = isFilterEnabled && isMasterActive,
+                                        onCheckedChange = { if (isMasterActive) onFilterToggle(it) },
+                                        enabled = isMasterActive,
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = DarkBackground,
+                                            checkedTrackColor = YellowAccent,
+                                            uncheckedThumbColor = TextMuted,
+                                            uncheckedTrackColor = DarkSurfaceVariant,
+                                            disabledCheckedThumbColor = DarkBackground,
+                                            disabledCheckedTrackColor = YellowAccent.copy(alpha = 0.4f)
+                                        )
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
 
-            // Keyword Management Section
+            // Aligned Section: SPAM RULES
             item {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, DarkBorder, RectangleShape),
+                        .border(1.dp, DarkBorder, RectangleShape)
+                        .alpha(if (isMasterActive && isFilterEnabled) 1f else 0.45f),
                     shape = RectangleShape,
                     color = DarkSurface
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp), // 8px system: 16dp
+                            .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Row(
@@ -852,7 +1312,7 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "// FILTER RULES",
+                                text = "// SPAM RULES",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace,
@@ -860,18 +1320,18 @@ fun SettingsScreen(
                                 color = TextSecondary
                             )
                             Text(
-                                text = "[ ${keywordsList.size} ACTIVE ]",
+                                text = if (isFilterEnabled) "[ ${keywordsList.size} ACTIVE ]" else "[ PAUSED ]",
                                 fontSize = 11.sp,
                                 fontFamily = FontFamily.Monospace,
-                                color = YellowAccent
+                                color = if (isFilterEnabled) YellowAccent else TextMuted
                             )
                         }
 
-                        // Pixel-Perfect Vertically Centered Input Row
+                        // Pixel-Perfect Input Row
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp) // 8px system: 8dp
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             BasicTextField(
                                 value = newKeywordText,
@@ -953,7 +1413,7 @@ fun SettingsScreen(
                 }
             }
 
-            // Test Notifications Section (with Test OTP, Test Spam, Test Clean)
+            // Test Notifications Section
             item {
                 Surface(
                     modifier = Modifier
@@ -965,7 +1425,7 @@ fun SettingsScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp), // 8px system: 16dp
+                            .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text(
@@ -977,50 +1437,105 @@ fun SettingsScreen(
                             color = TextSecondary
                         )
 
-                        // 3-way test buttons
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp) // 8px system
-                        ) {
-                            Button(
-                                onClick = { onRunSimulation(false, true) },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = YellowAccent,
-                                    contentColor = DarkBackground
-                                ),
-                                shape = RectangleShape,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
+                        // 6 test simulation buttons in 2 rows
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text("OTP 🔑", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Button(
+                                    onClick = { onRunSimulation("TRAVEL") },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = DarkSurfaceVariant,
+                                        contentColor = YellowAccent
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, YellowAccent.copy(alpha = 0.4f)),
+                                    shape = RectangleShape,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(44.dp)
+                                ) {
+                                    Text("TRVL ✈️", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                }
+
+                                Button(
+                                    onClick = { onRunSimulation("DELIVERY") },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = DarkSurfaceVariant,
+                                        contentColor = TextPrimary
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                                    shape = RectangleShape,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(44.dp)
+                                ) {
+                                    Text("PKG 📦", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                }
+
+                                Button(
+                                    onClick = { onRunSimulation("CARD") },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = DarkSurfaceVariant,
+                                        contentColor = TextPrimary
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                                    shape = RectangleShape,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(44.dp)
+                                ) {
+                                    Text("CARD 💳", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                }
                             }
 
-                            Button(
-                                onClick = { onRunSimulation(true, false) },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = DarkSurfaceVariant,
-                                    contentColor = YellowAccent
-                                ),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, YellowAccent.copy(alpha = 0.4f)),
-                                shape = RectangleShape,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text("SPAM ⚠️", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
+                                Button(
+                                    onClick = { onRunSimulation("BANK") },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = DarkSurfaceVariant,
+                                        contentColor = TextPrimary
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                                    shape = RectangleShape,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(44.dp)
+                                ) {
+                                    Text("BANK 🏦", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                }
 
-                            OutlinedButton(
-                                onClick = { onRunSimulation(false, false) },
-                                border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
-                                shape = RectangleShape,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
-                            ) {
-                                Text("CLEAN 🛡️", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                Button(
+                                    onClick = { onRunSimulation("OTP") },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = YellowAccent,
+                                        contentColor = DarkBackground
+                                    ),
+                                    shape = RectangleShape,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(44.dp)
+                                ) {
+                                    Text("OTP 🔑", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                }
+
+                                Button(
+                                    onClick = { onRunSimulation("SPAM") },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = DarkSurfaceVariant,
+                                        contentColor = TextPrimary
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                                    shape = RectangleShape,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(44.dp)
+                                ) {
+                                    Text("SPAM ⚠️", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                }
                             }
                         }
                     }
@@ -1078,7 +1593,7 @@ fun TechKeywordChip(
         border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp), // 8px system
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {

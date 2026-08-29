@@ -8,81 +8,106 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.heimdall.app.MainActivity
-import com.heimdall.app.R
 import com.heimdall.app.receiver.CopyOtpReceiver
 
 object NotificationHelper {
-    private const val CHANNEL_ID = "heimdall_alerts"
-    private const val CHANNEL_NAME = "Heimdall SMS Alerts"
+
+    private const val CHANNEL_ID_SPAM = "heimdall_spam_alerts"
+    private const val CHANNEL_ID_CLEAN = "heimdall_clean_alerts"
+    const val EXTRA_MESSAGE_TIMESTAMP = "extra_message_timestamp"
+
+    private fun createNotificationChannels(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            val spamChannel = NotificationChannel(
+                CHANNEL_ID_SPAM,
+                "Heimdall Spam Warnings",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "High priority warnings for intercepted spam SMS"
+                enableVibration(true)
+            }
+
+            val cleanChannel = NotificationChannel(
+                CHANNEL_ID_CLEAN,
+                "Heimdall Clean Feed",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Subtle feed alerts for verified clean SMS"
+                enableVibration(false)
+            }
+
+            notificationManager.createNotificationChannel(spamChannel)
+            notificationManager.createNotificationChannel(cleanChannel)
+        }
+    }
 
     fun showInspectionNotification(
         context: Context,
         sender: String,
         body: String,
         isSpam: Boolean,
-        matchedKeyword: String?
+        matchedKeyword: String?,
+        timestamp: Long = System.currentTimeMillis()
     ) {
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        createNotificationChannels(context)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Live SMS Alerts from Heimdall"
-                enableVibration(true)
-            }
-            manager.createNotificationChannel(channel)
+        val channelId = if (isSpam) CHANNEL_ID_SPAM else CHANNEL_ID_CLEAN
+        val title = if (isSpam) {
+            "⚠️ $sender"
+        } else {
+            "🛡️ $sender"
         }
 
-        // Clean format: Emoji + Sender
-        val title = if (isSpam) "⚠️ $sender" else "🛡️ $sender"
-        val content = body
-
-        // Open MainActivity when notification is clicked
-        val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        val content = if (isSpam && !matchedKeyword.isNullOrEmpty()) {
+            "[SPAM: ${matchedKeyword.uppercase()}] $body"
+        } else {
+            body
         }
-        val pendingIntent = PendingIntent.getActivity(
+
+        // Tap on notification directly opens MainActivity and auto-opens this message's preview modal
+        val openAppIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_MESSAGE_TIMESTAMP, timestamp)
+        }
+        val pendingOpenIntent = PendingIntent.getActivity(
             context,
-            0,
-            intent,
+            timestamp.toInt(),
+            openAppIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notificationId = (System.currentTimeMillis() % 100000).toInt()
-
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_heimdall_eye)
+        val builder = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setContentTitle(title)
             .setContentText(content)
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setContentIntent(pendingIntent)
+            .setPriority(if (isSpam) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_LOW)
             .setAutoCancel(true)
+            .setContentIntent(pendingOpenIntent)
 
-        // Check if message contains an OTP code
+        // If an OTP is present, attach 1-Tap Copy Action Button directly on the notification
         val extractedOtp = OtpHelper.extractOtp(body)
         if (extractedOtp != null) {
             val copyIntent = Intent(context, CopyOtpReceiver::class.java).apply {
-                action = CopyOtpReceiver.ACTION_COPY_OTP
                 putExtra(CopyOtpReceiver.EXTRA_OTP_CODE, extractedOtp)
             }
-            val copyPendingIntent = PendingIntent.getBroadcast(
+            val pendingCopyIntent = PendingIntent.getBroadcast(
                 context,
-                notificationId,
+                timestamp.toInt(),
                 copyIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            // Add 1-tap "Copy <OTP>" action directly on the notification!
+
             builder.addAction(
-                R.drawable.ic_heimdall_eye,
+                android.R.drawable.ic_menu_save,
                 "Copy $extractedOtp",
-                copyPendingIntent
+                pendingCopyIntent
             )
         }
 
-        manager.notify(notificationId, builder.build())
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(timestamp.toInt(), builder.build())
     }
 }
