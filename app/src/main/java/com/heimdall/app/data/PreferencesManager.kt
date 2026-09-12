@@ -131,7 +131,7 @@ class PreferencesManager(context: Context) {
     fun importInitialMessages(imported: List<InspectedMessage>) {
         val current = getInspectedMessagesInternal()
         val currentTimestamps = current.map { it.timestamp }.toSet()
-        val newToAdd = imported.filter { it.timestamp !in currentTimestamps }
+        val newToAdd = imported.filter { it.timestamp !in currentTimestamps }.map { it.copy(isRead = true) }
         val combined = (current + newToAdd).sortedByDescending { it.timestamp }
         val trimmed = if (combined.size > 100) combined.take(100).toMutableList() else combined.toMutableList()
         memoryMessagesCache = trimmed

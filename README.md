@@ -47,7 +47,7 @@ Heimdall works differently:
 Since Heimdall is distributed directly outside the Google Play Store, Android will show a few standard security checks:
 1. **"Install unknown apps"**: Tap **Settings** → toggle **Allow from this source** (Chrome / Files).
 2. **"Blocked by Play Protect"**: Tap **More details** → **Install anyway** *(Heimdall is 100% offline with zero internet permissions, so your data never leaves your device)*.
-3. **Set as Default SMS App**: Open Heimdall → tap **Settings (top right)** → tap **SET AS DEFAULT SMS APP** to enable silent spam filtering and load your inbox.
+3. **"Restricted settings" / SMS Permission**: Open Heimdall → tap **Settings (top right)** → tap **SET AS DEFAULT SMS APP** (which automatically grants SMS access at the OS level). If managing permissions manually in phone App Info, tap the **three dots (`⋮`)** in the top-right corner → tap **Allow restricted settings**.
 
 ### 💻 Build from source
 Requires JDK 17+ and the Android SDK.

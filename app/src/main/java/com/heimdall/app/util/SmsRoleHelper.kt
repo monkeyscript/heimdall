@@ -145,7 +145,7 @@ object SmsRoleHelper {
                             body = body,
                             isSpam = isSpam,
                             matchedKeyword = matchedKeyword,
-                            isRead = isRead,
+                            isRead = true, // Initial imported messages are always marked as read
                             category = category
                         )
                     )
