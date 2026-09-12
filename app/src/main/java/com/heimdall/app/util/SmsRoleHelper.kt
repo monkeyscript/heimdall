@@ -94,4 +94,67 @@ object SmsRoleHelper {
             0
         }
     }
+
+    /**
+     * Reads existing messages from Android's central SMS inbox for one-time initial load.
+     * Capped at limit (default 100) to keep memory footprint minimal.
+     */
+    fun readExistingInboxMessages(
+        context: Context,
+        keywords: Set<String> = emptySet(),
+        limit: Int = 100
+    ): List<com.heimdall.app.data.InspectedMessage> {
+        val messages = mutableListOf<com.heimdall.app.data.InspectedMessage>()
+        try {
+            val projection = arrayOf(
+                Telephony.Sms.ADDRESS,
+                Telephony.Sms.BODY,
+                Telephony.Sms.DATE,
+                Telephony.Sms.READ
+            )
+            val cursor = context.contentResolver.query(
+                Telephony.Sms.Inbox.CONTENT_URI,
+                projection,
+                null,
+                null,
+                "${Telephony.Sms.DATE} DESC"
+            )
+            cursor?.use {
+                val addressIndex = it.getColumnIndex(Telephony.Sms.ADDRESS)
+                val bodyIndex = it.getColumnIndex(Telephony.Sms.BODY)
+                val dateIndex = it.getColumnIndex(Telephony.Sms.DATE)
+                val readIndex = it.getColumnIndex(Telephony.Sms.READ)
+
+                var count = 0
+                while (it.moveToNext() && count < limit) {
+                    val sender = if (addressIndex != -1) it.getString(addressIndex) ?: "Unknown" else "Unknown"
+                    val body = if (bodyIndex != -1) it.getString(bodyIndex) ?: "" else ""
+                    val timestamp = if (dateIndex != -1) it.getLong(dateIndex) else System.currentTimeMillis()
+                    val isRead = if (readIndex != -1) it.getInt(readIndex) == 1 else true
+
+                    val lowerBody = body.lowercase()
+                    val matchedKeyword = keywords.firstOrNull { kw -> lowerBody.contains(kw) }
+                    val isSpam = matchedKeyword != null
+
+                    val category = CategoryHelper.detectCategory(sender, body, isSpam).name
+
+                    messages.add(
+                        com.heimdall.app.data.InspectedMessage(
+                            timestamp = timestamp,
+                            sender = sender,
+                            body = body,
+                            isSpam = isSpam,
+                            matchedKeyword = matchedKeyword,
+                            isRead = isRead,
+                            category = category
+                        )
+                    )
+                    count++
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read existing inbox messages", e)
+        }
+        return messages
+    }
 }

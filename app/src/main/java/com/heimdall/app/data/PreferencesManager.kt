@@ -118,6 +118,27 @@ class PreferencesManager(context: Context) {
         }
     }
 
+    // One-time initial SMS import state
+    fun hasImportedInitialSms(): Boolean {
+        return prefs.getBoolean("has_imported_initial_sms", false)
+    }
+
+    fun setImportedInitialSms(imported: Boolean) {
+        prefs.edit().putBoolean("has_imported_initial_sms", imported).apply()
+    }
+
+    @Synchronized
+    fun importInitialMessages(imported: List<InspectedMessage>) {
+        val current = getInspectedMessagesInternal()
+        val currentTimestamps = current.map { it.timestamp }.toSet()
+        val newToAdd = imported.filter { it.timestamp !in currentTimestamps }
+        val combined = (current + newToAdd).sortedByDescending { it.timestamp }
+        val trimmed = if (combined.size > 100) combined.take(100).toMutableList() else combined.toMutableList()
+        memoryMessagesCache = trimmed
+        saveMessagesAsync(trimmed)
+        notifyMessagesChanged()
+    }
+
     // High-performance in-memory add with async background persistence
     @Synchronized
     fun addInspectedMessage(message: InspectedMessage) {

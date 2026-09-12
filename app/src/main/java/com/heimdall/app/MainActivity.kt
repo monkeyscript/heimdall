@@ -225,6 +225,25 @@ fun HeimdallApp(
         isShowSpamInFeed = prefsManager.isShowSpamInFeed()
     }
 
+    // One-time initial load of existing inbox messages once default SMS or READ_SMS is available
+    LaunchedEffect(isDefaultSms) {
+        val hasReadPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_SMS
+        ) == PackageManager.PERMISSION_GRANTED
+        if ((isDefaultSms || hasReadPermission) && !prefsManager.hasImportedInitialSms()) {
+            withContext(Dispatchers.IO) {
+                val keywords = prefsManager.getKeywords()
+                val oldMessages = SmsRoleHelper.readExistingInboxMessages(context, keywords = keywords, limit = 100)
+                if (oldMessages.isNotEmpty()) {
+                    prefsManager.importInitialMessages(oldMessages)
+                }
+                prefsManager.setImportedInitialSms(true)
+            }
+            inspectedLogs = prefsManager.getInspectedMessages()
+        }
+    }
+
     // Run automatic spam cleanup (older than 30 days) when app is open and idle
     LaunchedEffect(Unit) {
         delay(2000L) // Wait 2s for UI to settle idle
