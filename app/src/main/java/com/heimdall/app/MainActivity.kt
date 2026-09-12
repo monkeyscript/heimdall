@@ -158,10 +158,20 @@ fun HeimdallApp(
     var isFilterEnabled by remember { mutableStateOf(prefsManager.isFilterEnabled()) }
     var isShowSpamInFeed by remember { mutableStateOf(prefsManager.isShowSpamInFeed()) }
 
+    // Single-permission launcher for notifications (Android 13+)
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ -> }
+
     val defaultSmsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) {
         isDefaultSms = SmsRoleHelper.isDefaultSmsApp(context)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
     }
 
     LaunchedEffect(messagesVersion) {
@@ -198,21 +208,18 @@ fun HeimdallApp(
         }
     }
 
-    // Permission state
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ -> }
-
+    // Direct startup trigger: immediately request default SMS role on open if not set
     LaunchedEffect(Unit) {
-        val needed = mutableListOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            needed.add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        val notGranted = needed.filter {
-            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-        }
-        if (notGranted.isNotEmpty()) {
-            permissionLauncher.launch(notGranted.toTypedArray())
+        if (!SmsRoleHelper.isDefaultSmsApp(context)) {
+            try {
+                defaultSmsLauncher.launch(SmsRoleHelper.createDefaultSmsIntent(context))
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
         }
     }
 
@@ -387,6 +394,10 @@ fun HeimdallApp(
                 InboxScreen(
                     uiMessages = uiMessages,
                     showSpamInFeed = isShowSpamInFeed,
+                    isDefaultSms = isDefaultSms,
+                    onRequestDefaultSms = {
+                        defaultSmsLauncher.launch(SmsRoleHelper.createDefaultSmsIntent(context))
+                    },
                     onOpenSettings = { currentScreen = AppScreen.SETTINGS },
                     onSelectMessage = { message ->
                         prefsManager.markMessageAsRead(message.timestamp)
@@ -449,6 +460,8 @@ fun HeimdallApp(
 fun InboxScreen(
     uiMessages: List<UiMessageItem>,
     showSpamInFeed: Boolean,
+    isDefaultSms: Boolean,
+    onRequestDefaultSms: () -> Unit,
     onOpenSettings: () -> Unit,
     onSelectMessage: (InspectedMessage) -> Unit,
     onMarkAllAsRead: () -> Unit,
@@ -535,6 +548,51 @@ fun InboxScreen(
         }
 
         HorizontalDivider(color = DarkBorder, thickness = 1.dp)
+
+        // Warning Banner if Heimdall is not the default SMS app
+        if (!isDefaultSms) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .clickable { onRequestDefaultSms() },
+                shape = RectangleShape,
+                color = YellowAccent.copy(alpha = 0.12f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, YellowAccent.copy(alpha = 0.6f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "⚠ DEFAULT SMS APP REQUIRED",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = YellowAccent,
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Tap here to set Heimdall as default to enable silent spam filtering and load your inbox.",
+                            fontSize = 11.sp,
+                            color = TextSecondary,
+                            lineHeight = 15.sp
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = null,
+                        tint = YellowAccent,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
 
         // Minimal Options Bar (Search on Left + UNREAD Badge on Right)
         Row(
