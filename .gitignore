@@ -11,3 +11,6 @@
 app/build
 *.apk
 *.aar
+*.jks
+*.keystore
+

@@ -1,5 +1,8 @@
 # Heimdall 👁️🛡️
 
+[![Download APK](https://img.shields.io/github/v/release/monkeyscript/heimdall?label=Download%20APK&logo=android&color=success)](https://github.com/monkeyscript/heimdall/releases/latest)
+[![No Internet](https://img.shields.io/badge/Permissions-Zero%20Internet-brightgreen.svg)]()
+
 An Android SMS app built to silently block spam and keep it out of your system message storage.
 
 ## 🎭 Behind the curtain
@@ -36,20 +39,21 @@ Heimdall works differently:
 
 ## 🚀 Get it running
 
-### 📦 Sideload the APK
-1. Grab `app/build/outputs/apk/debug/app-debug.apk`.
-2. Transfer it to your phone and install it.
-3. Open Heimdall, grant SMS permissions, and set it as your default SMS app in Settings.
+### 📦 Download the APK
+- **Direct Download**: Grab the latest signed APK from [GitHub Releases](https://github.com/monkeyscript/heimdall/releases/latest).
+- **Auto-Updates with Obtainium**: Add `https://github.com/monkeyscript/heimdall` to [Obtainium](https://github.com/ImranR98/Obtainium) to get automated update alerts whenever a new version is released.
+
+Once installed, open Heimdall, grant SMS permissions, and set it as your default SMS app in Settings.
 
 ### 💻 Build from source
 Requires JDK 17+ and the Android SDK.
 
 ```bash
-git clone https://github.com/your-username/Heimdall.git
-cd Heimdall
+git clone https://github.com/monkeyscript/heimdall.git
+cd heimdall
 
-# Build APK
-./gradlew assembleDebug
+# Build signed release APK
+./gradlew assembleRelease
 
 # Or install directly to a connected phone
 ./gradlew installDebug

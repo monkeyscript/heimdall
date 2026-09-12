@@ -21,6 +21,19 @@ android {
         }
     }
 
+    val releaseKeystore = rootProject.file("heimdall-release.jks")
+
+    signingConfigs {
+        if (releaseKeystore.exists()) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "heimdall2026"
+                keyAlias = System.getenv("KEY_ALIAS") ?: "heimdall"
+                keyPassword = System.getenv("KEY_PASSWORD") ?: "heimdall2026"
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -28,6 +41,19 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (releaseKeystore.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+    }
+
+    applicationVariants.all {
+        val variant = this
+        outputs.all {
+            val output = this as? com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            if (variant.buildType.name == "release") {
+                output?.outputFileName = "Heimdall-v${variant.versionName}.apk"
+            }
         }
     }
     compileOptions {
