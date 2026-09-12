@@ -37,33 +37,8 @@ Heimdall works differently:
 | **Offline Message Categorization** *(Bank, Card, Delivery, Travel, OTP)* | ✅ *(100% On-Device)* | ❌ | ❌ | ⚠️ *(Cloud-based / OEM specific)* |
 | **No Account / No Telemetry** | ✅ | ✅ | ✅ | ❌ |
 
-## 🚀 Get it running
+## 💻 Build from source (Recommended)
 
-### 📦 Download the APK
-- **Direct Download**: Grab the latest signed APK from [GitHub Releases](https://github.com/monkeyscript/heimdall/releases/latest).
-- **Auto-Updates with Obtainium**: Add `https://github.com/monkeyscript/heimdall` to [Obtainium](https://github.com/ImranR98/Obtainium) to get automated update alerts whenever a new version is released.
-
-#### 💡 First-time installation guide (Android 13/14)
-Since Heimdall is distributed directly outside the Google Play Store, Android will show a few standard security checks on first setup:
-
-1. **Install from Files / Unknown Apps**:
-   * When Android prompts: *"For your security, your phone currently isn't allowed to install unknown apps from this source"*:
-   * **Steps**: Tap **Settings** → toggle on **Allow from this source** → press **Back** → tap **Install**.
-
-2. **Google Play Protect Warning**:
-   * When Android prompts: *"Blocked by Play Protect"* or *"Unsafe app blocked"*:
-   * **Steps**: Tap **More details** (dropdown arrow) → tap **Install anyway** *(Heimdall has zero internet permissions, so your data never leaves the device)*.
-   * *Alternative (to pause scanning)*: Open **Google Play Store** → tap **Profile icon** (top-right) → tap **Play Protect** → tap **⚙️ Settings** (top-right) → turn off **Scan apps with Play Protect**.
-
-3. **Restricted Settings (if permissions are locked)**:
-   * If Android prompts: *"Restricted setting: For your security, this setting is currently unavailable"*:
-   * **Steps**: Open phone **Settings** → **Apps** → **All apps** → **Heimdall** (or long-press the Heimdall icon → **App info**) → tap the **three dots (`⋮`)** in the top-right corner → tap **Allow restricted settings** → verify with your fingerprint or PIN.
-
-4. **Set as Default SMS App**:
-   * When you open Heimdall, it automatically prompts: *"Set Heimdall as your default SMS app?"*.
-   * **Steps**: Select **Heimdall** → tap **Set as default**. This automatically grants SMS access at the OS level, activates silent spam filtering, and loads your existing inbox.
-
-### 💻 Build from source
 Requires JDK 17+ and the Android SDK.
 
 ```bash
@@ -76,3 +51,34 @@ cd heimdall
 # Or install directly to a connected phone
 ./gradlew installDebug
 ```
+
+## 📦 Download APK
+
+- **Direct Download**: Grab the latest signed APK from [GitHub Releases](https://github.com/monkeyscript/heimdall/releases/latest).
+- **Auto-Updates**: Add `https://github.com/monkeyscript/heimdall` to [Obtainium](https://github.com/ImranR98/Obtainium) for automated release updates.
+
+<details>
+<summary>🔧 <b>Installation troubleshooting</b></summary>
+<br>
+
+Because Heimdall is distributed directly on GitHub (sideloaded outside the Google Play Store), you may see standard Android security prompts during setup. Here is how to resolve them:
+
+1. **Allow Unknown Apps (Chrome / Files)**:
+   * **Settings Path**: Open phone **Settings** → Search for **"Install unknown apps"** → Select **Chrome** or **Files** (whichever app you downloaded the APK with) → Toggle on **Allow from this source**.
+   * *(Or from the install prompt: Tap **Settings** on the warning popup → Turn on **Allow from this source** → Press **Back** → Tap **Install**).*
+
+2. **Google Play Protect**:
+   * Tap **More details** → Tap **Install anyway** *(Heimdall is 100% offline with zero internet permissions)*.
+   * *To pause scanning*: Open **Play Store** → Tap Profile icon (top right) → Tap **Play Protect** → Tap ⚙️ **Settings** (top right) → Turn off **Scan apps with Play Protect**.
+
+3. **Restricted Permissions (if SMS toggle is greyed out)**:
+   * Open phone **Settings** → **Apps** → **Heimdall** → Tap **`⋮`** (top right) → Tap **Allow restricted settings** → Verify with fingerprint/PIN.
+
+4. **Set as Default SMS App**:
+   * When Heimdall launches, it automatically prompts: *"Set Heimdall as your default SMS app?"* → Select **Heimdall** → Tap **Set as default**. This grants SMS access and loads your existing inbox.
+
+</details>
+
+## 💡 Feedback & Feature Requests
+
+Have a feature request, suggestion, or found a bug? Please [open an issue](https://github.com/monkeyscript/heimdall/issues)—feedback and contributions are always welcome!
