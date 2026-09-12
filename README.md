@@ -43,7 +43,11 @@ Heimdall works differently:
 - **Direct Download**: Grab the latest signed APK from [GitHub Releases](https://github.com/monkeyscript/heimdall/releases/latest).
 - **Auto-Updates with Obtainium**: Add `https://github.com/monkeyscript/heimdall` to [Obtainium](https://github.com/ImranR98/Obtainium) to get automated update alerts whenever a new version is released.
 
-Once installed, open Heimdall, grant SMS permissions, and set it as your default SMS app in Settings.
+#### 💡 First-time installation tips (Android 13/14)
+Since Heimdall is distributed directly outside the Google Play Store, Android will show a few standard security checks:
+1. **"Install unknown apps"**: Tap **Settings** → toggle **Allow from this source** (Chrome / Files).
+2. **"Blocked by Play Protect"**: Tap **More details** → **Install anyway** *(Heimdall is 100% offline with zero internet permissions, so your data never leaves your device)*.
+3. **Set as Default SMS App**: Open Heimdall → tap **Settings (top right)** → tap **SET AS DEFAULT SMS APP** to enable silent spam filtering and load your inbox.
 
 ### 💻 Build from source
 Requires JDK 17+ and the Android SDK.
