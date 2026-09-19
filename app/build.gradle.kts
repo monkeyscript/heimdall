@@ -21,6 +21,11 @@ android {
         }
     }
 
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
+
     val releaseKeystore = rootProject.file("heimdall-release.jks")
 
     signingConfigs {
