@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.compose.runtime.mutableLongStateOf
 import com.heimdall.app.util.CategoryHelper
+import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -37,15 +38,9 @@ class PreferencesManager(context: Context) {
         private const val KEY_LAST_SPAM_CLEANUP = "last_spam_cleanup"
         private const val KEY_SHOW_SPAM_IN_FEED = "show_spam_in_feed"
 
-        val DEFAULT_KEYWORDS = setOf(
-            "loan",
-            "winner",
-            "offer",
-            "crypto",
-            "kyc",
-            "lottery",
-            "rummy",
-            "bonus"
+        val DEFAULT_KEYWORDS: Set<String> = emptySet()
+        private val LEGACY_DEFAULT_KEYWORDS = setOf(
+            "loan", "winner", "offer", "crypto", "kyc", "lottery", "rummy", "bonus"
         )
     }
 
@@ -80,8 +75,16 @@ class PreferencesManager(context: Context) {
     fun setShieldEnabled(enabled: Boolean) = setMasterActive(enabled)
 
     fun getKeywords(): Set<String> {
-        return prefs.getStringSet(KEY_KEYWORDS, DEFAULT_KEYWORDS) ?: DEFAULT_KEYWORDS
+        val stored = prefs.getStringSet(KEY_KEYWORDS, null) ?: return emptySet()
+        if (stored == LEGACY_DEFAULT_KEYWORDS) {
+            prefs.edit().putStringSet(KEY_KEYWORDS, emptySet()).apply()
+            return emptySet()
+        }
+        return stored
     }
+
+    private val reevaluateScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private var reevaluateJob: Job? = null
 
     fun addKeyword(keyword: String): Boolean {
         val trimmed = keyword.trim().lowercase()
@@ -90,6 +93,7 @@ class PreferencesManager(context: Context) {
         val added = current.add(trimmed)
         if (added) {
             prefs.edit().putStringSet(KEY_KEYWORDS, current).apply()
+            triggerReevaluation(150L)
         }
         return added
     }
@@ -99,8 +103,50 @@ class PreferencesManager(context: Context) {
         val removed = current.remove(keyword.trim().lowercase())
         if (removed) {
             prefs.edit().putStringSet(KEY_KEYWORDS, current).apply()
+            triggerReevaluation(150L)
         }
         return removed
+    }
+
+    fun triggerReevaluation(debounceMs: Long = 150L) {
+        reevaluateJob?.cancel()
+        reevaluateJob = reevaluateScope.launch {
+            if (debounceMs > 0) {
+                delay(debounceMs)
+            }
+            reevaluateMessagesWithKeywords()
+        }
+    }
+
+    @Synchronized
+    fun reevaluateMessagesWithKeywords(activeKeywords: Set<String> = getKeywords()) {
+        val list = getInspectedMessagesInternal().toMutableList()
+        var changed = false
+        val lowerKeywords = activeKeywords.map { it.lowercase() }
+        val isFilterOn = isFilterEnabled() && isMasterActive()
+
+        for (i in list.indices) {
+            val msg = list[i]
+            val lowerBody = msg.body.lowercase()
+            val matched = if (isFilterOn) lowerKeywords.firstOrNull { kw -> lowerBody.contains(kw) } else null
+            val isSpam = matched != null
+            val newCategory = CategoryHelper.detectCategory(msg.sender, msg.body, isSpam).name
+
+            if (msg.isSpam != isSpam || msg.matchedKeyword != matched || msg.category != newCategory) {
+                list[i] = msg.copy(
+                    isSpam = isSpam,
+                    matchedKeyword = matched,
+                    category = newCategory
+                )
+                changed = true
+            }
+        }
+
+        if (changed) {
+            memoryMessagesCache = list
+            saveMessagesAsync(list)
+            notifyMessagesChanged()
+        }
     }
 
     fun getBlockedCount(): Int {

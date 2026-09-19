@@ -82,6 +82,11 @@ private val TIME_FORMAT = SimpleDateFormat("hh:mm a", Locale.getDefault())
 private val DATE_FORMAT = SimpleDateFormat("dd MMM", Locale.getDefault())
 private val FULL_DATE_FORMAT = SimpleDateFormat("MMM dd, yyyy • hh:mm a", Locale.getDefault())
 
+// Cached graphics objects to prevent GC allocations during LazyColumn scrolling
+private val SPAM_TAG_BORDER = androidx.compose.foundation.BorderStroke(1.dp, YellowAccent.copy(alpha = 0.4f))
+private val ROW_DIVIDER_COLOR = DarkBorder.copy(alpha = 0.4f)
+private val AVATAR_BOX_BORDER = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder)
+
 // Fast O(1) timestamp formatting using Android's native DateUtils without Calendar allocations
 fun formatMessageTimestamp(timestamp: Long): String {
     return if (DateUtils.isToday(timestamp)) {
@@ -210,6 +215,8 @@ fun HeimdallApp(
 
     // Direct startup trigger: immediately request default SMS role on open if not set
     LaunchedEffect(Unit) {
+        prefsManager.reevaluateMessagesWithKeywords()
+        inspectedLogs = prefsManager.getInspectedMessages()
         if (!SmsRoleHelper.isDefaultSmsApp(context)) {
             try {
                 defaultSmsLauncher.launch(SmsRoleHelper.createDefaultSmsIntent(context))
@@ -420,26 +427,27 @@ fun HeimdallApp(
                     isMasterActive = isMasterActive,
                     isFilterEnabled = isFilterEnabled,
                     isShowSpamInFeed = isShowSpamInFeed,
-                    isDefaultSms = isDefaultSms,
                     keywordsList = keywordsList,
                     messages = inspectedLogs,
                     onMasterToggle = { enabled ->
                         isMasterActive = enabled
                         prefsManager.setMasterActive(enabled)
+                        prefsManager.triggerReevaluation(0L)
+                        inspectedLogs = prefsManager.getInspectedMessages()
                     },
                     onFilterToggle = { enabled ->
                         isFilterEnabled = enabled
                         prefsManager.setFilterEnabled(enabled)
+                        prefsManager.triggerReevaluation(0L)
+                        inspectedLogs = prefsManager.getInspectedMessages()
                     },
                     onShowSpamInFeedToggle = { enabled ->
                         isShowSpamInFeed = enabled
                         prefsManager.setShowSpamInFeed(enabled)
                     },
-                    onRequestDefaultSms = {
-                        defaultSmsLauncher.launch(SmsRoleHelper.createDefaultSmsIntent(context))
-                    },
                     onKeywordsUpdated = {
                         keywordsList = prefsManager.getKeywords().sorted()
+                        inspectedLogs = prefsManager.getInspectedMessages()
                     },
                     onDeleteAllSpam = {
                         val count = prefsManager.deleteAllSpam()
@@ -549,53 +557,59 @@ fun InboxScreen(
 
         HorizontalDivider(color = DarkBorder, thickness = 1.dp)
 
-        // Default SMS App Setting Card (Moved to main screen, shown only when not set)
         if (!isDefaultSms) {
-            Surface(
+            // Dedicated Centered Activation Screen when not Default SMS App
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
-                    .border(1.dp, YellowAccent.copy(alpha = 0.8f), RectangleShape),
-                shape = RectangleShape,
-                color = DarkSurface
+                    .fillMaxSize()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
             ) {
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .background(YellowAccent.copy(alpha = 0.1f), CircleShape)
+                            .border(1.dp, YellowAccent.copy(alpha = 0.6f), CircleShape),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .background(YellowAccent, CircleShape)
-                        )
-                        Text(
-                            text = "// SETUP REQUIRED: DEFAULT SMS APP",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            letterSpacing = 1.sp,
-                            color = YellowAccent
+                        Icon(
+                            imageVector = Icons.Default.Shield,
+                            contentDescription = null,
+                            tint = YellowAccent,
+                            modifier = Modifier.size(36.dp)
                         )
                     }
 
                     Text(
-                        text = "Heimdall must be set as your default SMS app to silently intercept incoming spam before it reaches Android's database and to load your inbox.",
-                        fontSize = 12.sp,
-                        color = TextPrimary,
-                        lineHeight = 17.sp
+                        text = "// FIREWALL OFFLINE",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        letterSpacing = 1.5.sp,
+                        color = YellowAccent
                     )
+
+                    Text(
+                        text = "On Android, only the default SMS app can silently block spam before it alerts you or saves to your phone.",
+                        fontSize = 13.sp,
+                        color = TextSecondary,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        lineHeight = 19.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     Button(
                         onClick = onRequestDefaultSms,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(44.dp),
+                            .height(48.dp),
                         shape = RectangleShape,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = YellowAccent,
@@ -605,23 +619,22 @@ fun InboxScreen(
                         Icon(
                             imageVector = Icons.Default.Shield,
                             contentDescription = null,
-                            modifier = Modifier.size(16.dp),
+                            modifier = Modifier.size(18.dp),
                             tint = DarkBackground
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "SET AS DEFAULT SMS APP",
                             fontWeight = FontWeight.Black,
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                             letterSpacing = 1.sp
                         )
                     }
                 }
             }
-        }
-
-        // Minimal Options Bar (Search on Left + UNREAD Badge on Right)
-        Row(
+        } else {
+            // Minimal Options Bar (Search on Left + UNREAD Badge on Right)
+            Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -771,9 +784,9 @@ fun InboxScreen(
                 ) { item ->
                     InboxMessageRow(
                         item = item,
-                        onClick = { onSelectMessage(item.raw) }
+                        onSelectMessage = onSelectMessage
                     )
-                    HorizontalDivider(color = DarkBorder.copy(alpha = 0.4f), thickness = 1.dp)
+                    HorizontalDivider(color = ROW_DIVIDER_COLOR, thickness = 1.dp)
                 }
 
                 // Show More Pagination Button
@@ -848,21 +861,23 @@ fun InboxScreen(
         }
     }
 }
+}
 
-// 100% O(1) Fast Composable Row
+// 100% O(1) Fast Composable Row - Fully Skippable
 @Composable
 fun InboxMessageRow(
     item: UiMessageItem,
-    onClick: () -> Unit
+    onSelectMessage: (InspectedMessage) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val message = item.raw
     val category = item.category
     val displayTimestamp = item.formattedTime
 
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .clickable { onClick() }
+            .clickable { onSelectMessage(message) }
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -872,7 +887,7 @@ fun InboxMessageRow(
             modifier = Modifier
                 .size(36.dp)
                 .background(DarkSurfaceVariant)
-                .border(1.dp, DarkBorder, RectangleShape),
+                .border(AVATAR_BOX_BORDER, RectangleShape),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -905,7 +920,7 @@ fun InboxMessageRow(
                         Surface(
                             shape = RectangleShape,
                             color = YellowAccentSubtle,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, YellowAccent.copy(alpha = 0.4f))
+                            border = SPAM_TAG_BORDER
                         ) {
                             Text(
                                 text = message.matchedKeyword.uppercase(),
@@ -1189,13 +1204,11 @@ fun SettingsScreen(
     isMasterActive: Boolean,
     isFilterEnabled: Boolean,
     isShowSpamInFeed: Boolean,
-    isDefaultSms: Boolean,
     keywordsList: List<String>,
     messages: List<InspectedMessage>,
     onMasterToggle: (Boolean) -> Unit,
     onFilterToggle: (Boolean) -> Unit,
     onShowSpamInFeedToggle: (Boolean) -> Unit,
-    onRequestDefaultSms: () -> Unit,
     onKeywordsUpdated: () -> Unit,
     onDeleteAllSpam: () -> Unit,
     onBack: () -> Unit,
@@ -1399,149 +1412,6 @@ fun SettingsScreen(
                 }
             }
 
-            // Default SMS App Switch Shortcut (Shown in Settings only when set as default)
-            if (isDefaultSms) {
-                item {
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, DarkBorder, RectangleShape),
-                        shape = RectangleShape,
-                        color = DarkSurface
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Text(
-                                text = "// DEFAULT SMS APP",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                letterSpacing = 1.sp,
-                                color = TextSecondary
-                            )
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .background(Color(0xFF10B981), CircleShape)
-                                )
-                                Text(
-                                    text = "HEIMDALL IS DEFAULT SMS APP",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    letterSpacing = 0.5.sp,
-                                    color = Color(0xFF10B981)
-                                )
-                            }
-
-                            Text(
-                                text = "To send an SMS or use RCS, you can switch your default app back to Google Messages anytime.",
-                                fontSize = 11.sp,
-                                color = TextMuted,
-                                lineHeight = 16.sp
-                            )
-
-                            OutlinedButton(
-                                onClick = onRequestDefaultSms,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(42.dp),
-                                shape = RectangleShape,
-                                border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.SwapHoriz,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "SWITCH / MANAGE DEFAULT APP",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp,
-                                    letterSpacing = 1.sp
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Dedicated Feed Preferences Section
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, DarkBorder, RectangleShape),
-                    shape = RectangleShape,
-                    color = DarkSurface
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text(
-                            text = "// FEED PREFERENCES",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            letterSpacing = 1.sp,
-                            color = TextSecondary
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                Text(
-                                    text = "SHOW SPAM IN FEED",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 0.5.sp,
-                                    color = TextPrimary
-                                )
-                                Text(
-                                    text = if (isShowSpamInFeed) "Spam SMS visible in main inbox" else "Spam SMS hidden from main inbox (default)",
-                                    fontSize = 11.sp,
-                                    color = TextMuted,
-                                    lineHeight = 15.sp
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            Switch(
-                                checked = isShowSpamInFeed,
-                                onCheckedChange = onShowSpamInFeedToggle,
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = DarkBackground,
-                                    checkedTrackColor = YellowAccent,
-                                    uncheckedThumbColor = TextMuted,
-                                    uncheckedTrackColor = DarkSurfaceVariant
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-
             // Aligned Section: SPAM RULES
             item {
                 Surface(
@@ -1660,6 +1530,71 @@ fun SettingsScreen(
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            // Dedicated Feed Preferences Section
+            item {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, DarkBorder, RectangleShape),
+                    shape = RectangleShape,
+                    color = DarkSurface
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "// FEED PREFERENCES",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            letterSpacing = 1.sp,
+                            color = TextSecondary
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(
+                                    text = "SHOW SPAM IN FEED",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.5.sp,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = if (isShowSpamInFeed) "Spam SMS visible in main inbox" else "Spam SMS hidden from main inbox (default)",
+                                    fontSize = 11.sp,
+                                    color = TextMuted,
+                                    lineHeight = 15.sp
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Switch(
+                                checked = isShowSpamInFeed,
+                                onCheckedChange = onShowSpamInFeedToggle,
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = DarkBackground,
+                                    checkedTrackColor = YellowAccent,
+                                    uncheckedThumbColor = TextMuted,
+                                    uncheckedTrackColor = DarkSurfaceVariant
+                                )
+                            )
                         }
                     }
                 }
