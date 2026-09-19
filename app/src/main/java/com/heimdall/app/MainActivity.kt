@@ -549,47 +549,73 @@ fun InboxScreen(
 
         HorizontalDivider(color = DarkBorder, thickness = 1.dp)
 
-        // Warning Banner if Heimdall is not the default SMS app
+        // Default SMS App Setting Card (Moved to main screen, shown only when not set)
         if (!isDefaultSms) {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .clickable { onRequestDefaultSms() },
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .border(1.dp, YellowAccent.copy(alpha = 0.8f), RectangleShape),
                 shape = RectangleShape,
-                color = YellowAccent.copy(alpha = 0.12f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, YellowAccent.copy(alpha = 0.6f))
+                color = DarkSurface
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .background(YellowAccent, CircleShape)
+                        )
                         Text(
-                            text = "⚠ DEFAULT SMS APP REQUIRED",
-                            fontSize = 12.sp,
+                            text = "// SETUP REQUIRED: DEFAULT SMS APP",
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,
-                            color = YellowAccent,
-                            letterSpacing = 1.sp
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Tap here to set Heimdall as default to enable silent spam filtering and load your inbox.",
-                            fontSize = 11.sp,
-                            color = TextSecondary,
-                            lineHeight = 15.sp
+                            letterSpacing = 1.sp,
+                            color = YellowAccent
                         )
                     }
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = null,
-                        tint = YellowAccent,
-                        modifier = Modifier.size(16.dp)
+
+                    Text(
+                        text = "Heimdall must be set as your default SMS app to silently intercept incoming spam before it reaches Android's database and to load your inbox.",
+                        fontSize = 12.sp,
+                        color = TextPrimary,
+                        lineHeight = 17.sp
                     )
+
+                    Button(
+                        onClick = onRequestDefaultSms,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RectangleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = YellowAccent,
+                            contentColor = DarkBackground
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Shield,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = DarkBackground
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "SET AS DEFAULT SMS APP",
+                            fontWeight = FontWeight.Black,
+                            fontSize = 12.sp,
+                            letterSpacing = 1.sp
+                        )
+                    }
                 }
             }
         }
@@ -1252,13 +1278,26 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text(
-                                text = "ACTIVE",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.sp,
-                                color = TextPrimary
-                            )
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(
+                                    text = "ACTIVE",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.sp,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Master firewall switch for incoming SMS",
+                                    fontSize = 11.sp,
+                                    color = TextMuted,
+                                    lineHeight = 15.sp
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
 
                             Switch(
                                 checked = isMasterActive,
@@ -1360,64 +1399,57 @@ fun SettingsScreen(
                 }
             }
 
-            // Dedicated Default SMS App Card
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, DarkBorder, RectangleShape),
-                    shape = RectangleShape,
-                    color = DarkSurface
-                ) {
-                    Column(
+            // Default SMS App Switch Shortcut (Shown in Settings only when set as default)
+            if (isDefaultSms) {
+                item {
+                    Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                            .border(1.dp, DarkBorder, RectangleShape),
+                        shape = RectangleShape,
+                        color = DarkSurface
                     ) {
-                        Text(
-                            text = "// DEFAULT SMS APP",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            letterSpacing = 1.sp,
-                            color = TextSecondary
-                        )
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .background(
-                                        if (isDefaultSms) Color(0xFF10B981) else YellowAccent,
-                                        CircleShape
-                                    )
-                            )
                             Text(
-                                text = if (isDefaultSms) "HEIMDALL IS DEFAULT SMS APP" else "NOT DEFAULT SMS APP",
-                                fontSize = 13.sp,
+                                text = "// DEFAULT SMS APP",
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace,
-                                letterSpacing = 0.5.sp,
-                                color = if (isDefaultSms) Color(0xFF10B981) else YellowAccent
+                                letterSpacing = 1.sp,
+                                color = TextSecondary
                             )
-                        }
 
-                        Text(
-                            text = if (isDefaultSms) {
-                                "Spam is intercepted silently and kept out of system SMS storage. Clean messages sync automatically to Android's database."
-                            } else {
-                                "Set Heimdall as default SMS app to silently intercept spam, prevent spam from polluting system SMS, and enable system message deletion."
-                            },
-                            fontSize = 11.sp,
-                            color = TextMuted,
-                            lineHeight = 16.sp
-                        )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(Color(0xFF10B981), CircleShape)
+                                )
+                                Text(
+                                    text = "HEIMDALL IS DEFAULT SMS APP",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    letterSpacing = 0.5.sp,
+                                    color = Color(0xFF10B981)
+                                )
+                            }
 
-                        if (isDefaultSms) {
+                            Text(
+                                text = "To send an SMS or use RCS, you can switch your default app back to Google Messages anytime.",
+                                fontSize = 11.sp,
+                                color = TextMuted,
+                                lineHeight = 16.sp
+                            )
+
                             OutlinedButton(
                                 onClick = onRequestDefaultSms,
                                 modifier = Modifier
@@ -1437,32 +1469,6 @@ fun SettingsScreen(
                                     text = "SWITCH / MANAGE DEFAULT APP",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 11.sp,
-                                    letterSpacing = 1.sp
-                                )
-                            }
-                        } else {
-                            Button(
-                                onClick = onRequestDefaultSms,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(44.dp),
-                                shape = RectangleShape,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = YellowAccent,
-                                    contentColor = DarkBackground
-                                )
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Shield,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = DarkBackground
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "SET AS DEFAULT SMS APP",
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 12.sp,
                                     letterSpacing = 1.sp
                                 )
                             }
