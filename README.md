@@ -5,6 +5,12 @@
 
 An Android SMS app built to silently block spam and keep it out of your system message storage.
 
+<p align="center">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/1_inbox.png" width="31%" alt="Heimdall Inbox" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/2_message_modal.png" width="31%" alt="Message Inspector" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/3_settings.png" width="31%" alt="Spam Rules & Settings" />
+</p>
+
 ## 🎭 Behind the curtain
 
 Most spam blockers on Android just move spam into a "Spam" folder. The messages still get saved into your phone's central SMS database, and they still show up if you switch messaging apps or restore backups.
