@@ -12,8 +12,8 @@ android {
         applicationId = "com.heimdall.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.0.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -27,14 +27,17 @@ android {
     }
 
     val releaseKeystore = rootProject.file("heimdall-release.jks")
+    val keystorePassword = System.getenv("KEYSTORE_PASSWORD")
+    val keyPassword = System.getenv("KEY_PASSWORD")
+    val keyAlias = System.getenv("KEY_ALIAS") ?: "heimdall"
 
     signingConfigs {
-        if (releaseKeystore.exists()) {
+        if (releaseKeystore.exists() && !keystorePassword.isNullOrBlank() && !keyPassword.isNullOrBlank()) {
             create("release") {
                 storeFile = releaseKeystore
-                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "heimdall2026"
-                keyAlias = System.getenv("KEY_ALIAS") ?: "heimdall"
-                keyPassword = System.getenv("KEY_PASSWORD") ?: "heimdall2026"
+                storePassword = keystorePassword
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPassword
             }
         }
     }
@@ -46,8 +49,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            if (releaseKeystore.exists()) {
-                signingConfig = signingConfigs.getByName("release")
+            val releaseSigning = signingConfigs.findByName("release")
+            if (releaseSigning != null) {
+                signingConfig = releaseSigning
             }
         }
     }

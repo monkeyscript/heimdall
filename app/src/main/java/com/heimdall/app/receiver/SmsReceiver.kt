@@ -47,7 +47,7 @@ class SmsReceiver : BroadcastReceiver() {
         val normalizedBody = fullBody.lowercase()
         val timestamp = System.currentTimeMillis()
 
-        Log.d(TAG, "Heimdall ($action, isDefault=$isDefault) intercepted SMS from $sender: $fullBody")
+        Log.d(TAG, "Heimdall ($action, isDefault=$isDefault) received SMS broadcast.")
 
         // If Master Switch is OFF:
         if (!isMasterActive) {

@@ -8,8 +8,14 @@ FEATURES
 • Silent Spam Interception: When set as your default SMS app, Heimdall intercepts spam and scam broadcasts before they reach Android's system SMS database, preventing spam notifications from waking your screen.
 • Automatic Clean Message Sync: Legitimate messages automatically sync into Android's system SMS database and show instant notifications.
 • Multi-Layered Heuristic Engine: High-precision regex and heuristic rules detect urgent banking scams, suspicious links, phishing attempts, and unsolicited promotional spam.
-• On-Device AI Classification: Leverages local AI models (such as Gemini Nano via Google AICore on supported devices) for contextual scam detection without an internet connection.
-• Contact Whitelisting: Messages from anyone in your saved contacts are automatically whitelisted and never blocked.
+• Dynamic Rule Engine: Add or remove custom keyword rules with instant background re-evaluation of all messages.
 • One-Tap OTP Copying: Actionable notification buttons allow you to copy verification codes and one-time passwords directly with a single tap.
 • Minimalist Cyberpunk Terminal UI: Fast, responsive, dark-mode monospace interface built with Jetpack Compose.
 • Completely Open Source: Licensed under the Apache 2.0 license. Transparent and auditable.
+
+IMPORTANT LIMITATIONS
+
+Heimdall is designed specifically as an incoming SMS spam firewall and filter, not a full messaging client:
+• No Outbound SMS: Heimdall does not compose or send outbound text messages.
+• No MMS Support: Incoming multimedia messages (MMS) are discarded and not displayed.
+• To send text messages or view MMS, you can temporarily switch back to your primary messaging app.

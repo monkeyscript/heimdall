@@ -79,16 +79,24 @@ object SmsRoleHelper {
      * Deletes a message from Android's central Telephony provider.
      * Allowed only when Heimdall is the active default SMS app.
      */
-    fun deleteFromTelephonyProvider(context: Context, timestamp: Long): Int {
+    fun deleteFromTelephonyProvider(context: Context, timestamp: Long, sender: String? = null): Int {
         if (!isDefaultSmsApp(context)) return 0
         return try {
             val minTime = timestamp - 1000L
             val maxTime = timestamp + 1000L
-            context.contentResolver.delete(
-                Telephony.Sms.CONTENT_URI,
-                "${Telephony.Sms.DATE} >= ? AND ${Telephony.Sms.DATE} <= ?",
-                arrayOf(minTime.toString(), maxTime.toString())
-            )
+            if (!sender.isNullOrBlank()) {
+                context.contentResolver.delete(
+                    Telephony.Sms.CONTENT_URI,
+                    "${Telephony.Sms.ADDRESS} = ? AND ${Telephony.Sms.DATE} >= ? AND ${Telephony.Sms.DATE} <= ?",
+                    arrayOf(sender, minTime.toString(), maxTime.toString())
+                )
+            } else {
+                context.contentResolver.delete(
+                    Telephony.Sms.CONTENT_URI,
+                    "${Telephony.Sms.DATE} >= ? AND ${Telephony.Sms.DATE} <= ?",
+                    arrayOf(minTime.toString(), maxTime.toString())
+                )
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to delete SMS from central provider", e)
             0

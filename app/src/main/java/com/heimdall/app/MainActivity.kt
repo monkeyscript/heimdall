@@ -279,7 +279,7 @@ fun HeimdallApp(
                 if (message.isSpam) {
                     prefsManager.deleteMessage(message.timestamp)
                     coroutineScope.launch(Dispatchers.IO) {
-                        SmsRoleHelper.deleteFromTelephonyProvider(context, message.timestamp)
+                        SmsRoleHelper.deleteFromTelephonyProvider(context, message.timestamp, message.sender)
                     }
                     inspectedLogs = prefsManager.getInspectedMessages()
                     selectedMessageForModal = null
@@ -366,7 +366,7 @@ fun HeimdallApp(
                             onClick = {
                                 prefsManager.deleteMessage(msg.timestamp)
                                 coroutineScope.launch(Dispatchers.IO) {
-                                    SmsRoleHelper.deleteFromTelephonyProvider(context, msg.timestamp)
+                                    SmsRoleHelper.deleteFromTelephonyProvider(context, msg.timestamp, msg.sender)
                                 }
                                 inspectedLogs = prefsManager.getInspectedMessages()
                                 cleanMessageToDelete = null
