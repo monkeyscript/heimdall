@@ -23,12 +23,14 @@ data class InspectedMessage(
 class PreferencesManager(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("heimdall_prefs", Context.MODE_PRIVATE)
 
-    // Thread-safe in-memory cache to eliminate UI thread JSON parsing and disk hits
-    @Volatile
-    private var memoryMessagesCache: MutableList<InspectedMessage>? = null
-
     companion object {
         val messagesVersion = mutableLongStateOf(0L)
+
+        // Process-wide in-memory cache shared across all PreferencesManager instances
+        // (SmsReceiver, MainActivity, CopyOtpReceiver) so writes are immediately visible.
+        @Volatile
+        private var memoryMessagesCache: MutableList<InspectedMessage>? = null
+        private val cacheLock = Any()
 
         private const val KEY_MASTER_ACTIVE = "master_active"
         private const val KEY_FILTER_ENABLED = "filter_enabled"
@@ -118,34 +120,35 @@ class PreferencesManager(context: Context) {
         }
     }
 
-    @Synchronized
     fun reevaluateMessagesWithKeywords(activeKeywords: Set<String> = getKeywords()) {
-        val list = getInspectedMessagesInternal().toMutableList()
-        var changed = false
-        val lowerKeywords = activeKeywords.map { it.lowercase() }
-        val isFilterOn = isFilterEnabled() && isMasterActive()
+        synchronized(cacheLock) {
+            val list = getInspectedMessagesInternal().toMutableList()
+            var changed = false
+            val lowerKeywords = activeKeywords.map { it.lowercase() }
+            val isFilterOn = isFilterEnabled() && isMasterActive()
 
-        for (i in list.indices) {
-            val msg = list[i]
-            val lowerBody = msg.body.lowercase()
-            val matched = if (isFilterOn) lowerKeywords.firstOrNull { kw -> lowerBody.contains(kw) } else null
-            val isSpam = matched != null
-            val newCategory = CategoryHelper.detectCategory(msg.sender, msg.body, isSpam).name
+            for (i in list.indices) {
+                val msg = list[i]
+                val lowerBody = msg.body.lowercase()
+                val matched = if (isFilterOn) lowerKeywords.firstOrNull { kw -> lowerBody.contains(kw) } else null
+                val isSpam = matched != null
+                val newCategory = CategoryHelper.detectCategory(msg.sender, msg.body, isSpam).name
 
-            if (msg.isSpam != isSpam || msg.matchedKeyword != matched || msg.category != newCategory) {
-                list[i] = msg.copy(
-                    isSpam = isSpam,
-                    matchedKeyword = matched,
-                    category = newCategory
-                )
-                changed = true
+                if (msg.isSpam != isSpam || msg.matchedKeyword != matched || msg.category != newCategory) {
+                    list[i] = msg.copy(
+                        isSpam = isSpam,
+                        matchedKeyword = matched,
+                        category = newCategory
+                    )
+                    changed = true
+                }
             }
-        }
 
-        if (changed) {
-            memoryMessagesCache = list
-            saveMessagesAsync(list)
-            notifyMessagesChanged()
+            if (changed) {
+                memoryMessagesCache = list
+                saveMessagesAsync(list)
+                notifyMessagesChanged()
+            }
         }
     }
 
@@ -173,121 +176,130 @@ class PreferencesManager(context: Context) {
         prefs.edit().putBoolean("has_imported_initial_sms", imported).apply()
     }
 
-    @Synchronized
     fun importInitialMessages(imported: List<InspectedMessage>) {
-        val current = getInspectedMessagesInternal()
-        val currentTimestamps = current.map { it.timestamp }.toSet()
-        val newToAdd = imported.filter { it.timestamp !in currentTimestamps }.map { it.copy(isRead = true) }
-        val combined = (current + newToAdd).sortedByDescending { it.timestamp }
-        val trimmed = if (combined.size > 100) combined.take(100).toMutableList() else combined.toMutableList()
-        memoryMessagesCache = trimmed
-        saveMessagesAsync(trimmed)
-        notifyMessagesChanged()
+        synchronized(cacheLock) {
+            val current = getInspectedMessagesInternal()
+            val currentTimestamps = current.map { it.timestamp }.toSet()
+            val newToAdd = imported.filter { it.timestamp !in currentTimestamps }.map { it.copy(isRead = true) }
+            val combined = (current + newToAdd).sortedByDescending { it.timestamp }
+            val trimmed = if (combined.size > 100) combined.take(100).toMutableList() else combined.toMutableList()
+            memoryMessagesCache = trimmed
+            saveMessagesAsync(trimmed)
+            notifyMessagesChanged()
+        }
     }
 
     // High-performance in-memory add with async background persistence
-    @Synchronized
     fun addInspectedMessage(message: InspectedMessage) {
-        val list = getInspectedMessagesInternal().toMutableList()
-        list.add(0, message)
-        val trimmedList = if (list.size > 100) list.take(100).toMutableList() else list
-        memoryMessagesCache = trimmedList
-        saveMessagesAsync(trimmedList)
-        notifyMessagesChanged()
+        synchronized(cacheLock) {
+            val list = getInspectedMessagesInternal().toMutableList()
+            list.add(0, message)
+            val trimmedList = if (list.size > 100) list.take(100).toMutableList() else list
+            memoryMessagesCache = trimmedList
+            saveMessagesAsync(trimmedList)
+            notifyMessagesChanged()
+        }
     }
 
-    @Synchronized
     fun markMessageAsRead(timestamp: Long): Boolean {
-        val list = getInspectedMessagesInternal().toMutableList()
-        val idx = list.indexOfFirst { it.timestamp == timestamp }
-        if (idx != -1 && !list[idx].isRead) {
-            list[idx] = list[idx].copy(isRead = true)
-            memoryMessagesCache = list
-            saveMessagesAsync(list)
-            notifyMessagesChanged()
-            return true
+        synchronized(cacheLock) {
+            val list = getInspectedMessagesInternal().toMutableList()
+            val idx = list.indexOfFirst { it.timestamp == timestamp }
+            if (idx != -1 && !list[idx].isRead) {
+                list[idx] = list[idx].copy(isRead = true)
+                memoryMessagesCache = list
+                saveMessagesAsync(list)
+                notifyMessagesChanged()
+                return true
+            }
+            return false
         }
-        return false
     }
 
-    @Synchronized
     fun markAllAsRead(): Int {
-        val list = getInspectedMessagesInternal().toMutableList()
-        var count = 0
-        for (i in list.indices) {
-            if (!list[i].isRead) {
-                list[i] = list[i].copy(isRead = true)
-                count++
+        synchronized(cacheLock) {
+            val list = getInspectedMessagesInternal().toMutableList()
+            var count = 0
+            for (i in list.indices) {
+                if (!list[i].isRead) {
+                    list[i] = list[i].copy(isRead = true)
+                    count++
+                }
             }
+            if (count > 0) {
+                memoryMessagesCache = list
+                saveMessagesAsync(list)
+                notifyMessagesChanged()
+            }
+            return count
         }
-        if (count > 0) {
-            memoryMessagesCache = list
-            saveMessagesAsync(list)
-            notifyMessagesChanged()
-        }
-        return count
     }
 
     fun getMessageByTimestamp(timestamp: Long): InspectedMessage? {
         return getInspectedMessages().firstOrNull { it.timestamp == timestamp }
     }
 
-    @Synchronized
     fun deleteMessage(timestamp: Long): Boolean {
-        val list = getInspectedMessagesInternal().toMutableList()
-        val removed = list.removeAll { it.timestamp == timestamp }
-        if (removed) {
-            memoryMessagesCache = list
-            saveMessagesAsync(list)
-            notifyMessagesChanged()
+        synchronized(cacheLock) {
+            val list = getInspectedMessagesInternal().toMutableList()
+            val removed = list.removeAll { it.timestamp == timestamp }
+            if (removed) {
+                memoryMessagesCache = list
+                saveMessagesAsync(list)
+                notifyMessagesChanged()
+            }
+            return removed
         }
-        return removed
     }
 
-    @Synchronized
     fun deleteAllSpam(): Int {
-        val list = getInspectedMessagesInternal()
-        val spamCount = list.count { it.isSpam }
-        val cleanList = list.filter { !it.isSpam }.toMutableList()
-        memoryMessagesCache = cleanList
-        saveMessagesAsync(cleanList)
-        notifyMessagesChanged()
-        return spamCount
+        synchronized(cacheLock) {
+            val list = getInspectedMessagesInternal()
+            val spamCount = list.count { it.isSpam }
+            val cleanList = list.filter { !it.isSpam }.toMutableList()
+            memoryMessagesCache = cleanList
+            saveMessagesAsync(cleanList)
+            notifyMessagesChanged()
+            return spamCount
+        }
     }
 
-    @Synchronized
     fun cleanupOldSpam(
         maxAgeMillis: Long = 30L * 24 * 60 * 60 * 1000L,
         force: Boolean = false
     ): Int {
-        val now = System.currentTimeMillis()
-        val lastCleanup = prefs.getLong(KEY_LAST_SPAM_CLEANUP, 0L)
-        if (!force && (now - lastCleanup < 24L * 60 * 60 * 1000L)) {
-            return 0
-        }
+        synchronized(cacheLock) {
+            val now = System.currentTimeMillis()
+            val lastCleanup = prefs.getLong(KEY_LAST_SPAM_CLEANUP, 0L)
+            if (!force && (now - lastCleanup < 24L * 60 * 60 * 1000L)) {
+                return 0
+            }
 
-        prefs.edit().putLong(KEY_LAST_SPAM_CLEANUP, now).apply()
+            prefs.edit().putLong(KEY_LAST_SPAM_CLEANUP, now).apply()
 
-        val cutoff = now - maxAgeMillis
-        val list = getInspectedMessagesInternal()
-        val initialSize = list.size
-        val filtered = list.filterNot { it.isSpam && it.timestamp < cutoff }.toMutableList()
-        val deleted = initialSize - filtered.size
-        if (deleted > 0) {
-            memoryMessagesCache = filtered
-            saveMessagesAsync(filtered)
-            notifyMessagesChanged()
+            val cutoff = now - maxAgeMillis
+            val list = getInspectedMessagesInternal()
+            val initialSize = list.size
+            val filtered = list.filterNot { it.isSpam && it.timestamp < cutoff }.toMutableList()
+            val deleted = initialSize - filtered.size
+            if (deleted > 0) {
+                memoryMessagesCache = filtered
+                saveMessagesAsync(filtered)
+                notifyMessagesChanged()
+            }
+            return deleted
         }
-        return deleted
     }
 
     // Instant O(1) in-memory retrieval
     fun getInspectedMessages(): List<InspectedMessage> {
-        return getInspectedMessagesInternal()
+        return synchronized(cacheLock) {
+            getInspectedMessagesInternal().toList()
+        }
     }
 
-    @Synchronized
     private fun getInspectedMessagesInternal(): MutableList<InspectedMessage> {
+        // Caller must hold cacheLock
         memoryMessagesCache?.let { return it }
 
         val raw = prefs.getString(KEY_INSPECTED_LOGS, null)
@@ -347,9 +359,10 @@ class PreferencesManager(context: Context) {
         prefs.edit().putString(KEY_INSPECTED_LOGS, jsonArray.toString()).apply()
     }
 
-    @Synchronized
     fun clearInspectedMessages() {
-        memoryMessagesCache = mutableListOf()
-        prefs.edit().remove(KEY_INSPECTED_LOGS).apply()
+        synchronized(cacheLock) {
+            memoryMessagesCache = mutableListOf()
+            prefs.edit().remove(KEY_INSPECTED_LOGS).apply()
+        }
     }
 }

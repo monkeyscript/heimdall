@@ -8,7 +8,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@drawable/ic_heimdall_eye"
         android:label="Heimdall"
         android:roundIcon="@drawable/ic_heimdall_eye"

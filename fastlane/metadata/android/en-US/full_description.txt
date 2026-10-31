@@ -1,21 +1,21 @@
-Heimdall is an on-device, privacy-first SMS spam firewall and intelligent message filter for Android.
+Heimdall is an on-device, privacy-first SMS spam blocker for Android.
 
 Unlike conventional spam blockers that upload your private conversations and contact lists to remote servers, Heimdall runs entirely locally on your device with zero telemetry, zero analytics, and zero external tracking.
 
 FEATURES
 
 • 100% On-Device Protection: Incoming messages are analyzed strictly on your device. Your messages never leave your phone.
-• Silent Spam Interception: When set as your default SMS app, Heimdall intercepts spam and scam broadcasts before they reach Android's system SMS database, preventing spam notifications from waking your screen.
+• Silent Spam Interception: When set as your default SMS app, Heimdall intercepts spam broadcasts before they reach Android's system SMS database, preventing spam notifications from waking your screen.
 • Automatic Clean Message Sync: Legitimate messages automatically sync into Android's system SMS database and show instant notifications.
-• Multi-Layered Heuristic Engine: High-precision regex and heuristic rules detect urgent banking scams, suspicious links, phishing attempts, and unsolicited promotional spam.
-• Dynamic Rule Engine: Add or remove custom keyword rules with instant background re-evaluation of all messages.
+• Custom Keyword Rules: Add or remove keywords to your blocklist. Any incoming SMS containing a keyword is silently blocked. Changing keywords re-evaluates your existing messages instantly.
+• Message Categories: Tags incoming messages as Bank, Card, Delivery, Travel, or OTP based on common keywords in the message body. This is for visual organization only and does not block anything.
 • One-Tap OTP Copying: Actionable notification buttons allow you to copy verification codes and one-time passwords directly with a single tap.
 • Minimalist Cyberpunk Terminal UI: Fast, responsive, dark-mode monospace interface built with Jetpack Compose.
 • Completely Open Source: Licensed under the Apache 2.0 license. Transparent and auditable.
 
 IMPORTANT LIMITATIONS
 
-Heimdall is designed specifically as an incoming SMS spam firewall and filter, not a full messaging client:
+Heimdall is designed specifically as an incoming SMS spam blocker, not a full messaging client:
 • No Outbound SMS: Heimdall does not compose or send outbound text messages.
 • No MMS Support: Incoming multimedia messages (MMS) are discarded and not displayed.
 • To send text messages or view MMS, you can temporarily switch back to your primary messaging app.

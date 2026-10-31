@@ -30,7 +30,7 @@ Heimdall works differently:
 - 🎯 **Custom keyword rules**: Add any words or phrases to your blocklist (works with any language or script).
 - 🔑 **1-tap OTP copy**: Extracts verification codes and puts a "Copy" button directly on the notification. Clicking it copies the code and dismisses the alert.
 - 🔒 **100% offline**: No internet permission requested. None of your messages or data can leave your device.
-- 🏷️ **Smart message categories**: Automatically tags incoming messages as Bank, Card, Delivery, Travel, or OTP on arrival.
+- 🏷️ **Message categories**: Tags incoming messages as Bank, Card, Delivery, Travel, or OTP based on common keywords in the message body. This is for visual organization only — it does not block anything.
 
 ## ⚖️ How it stacks up
 
@@ -40,7 +40,7 @@ Heimdall works differently:
 | **100% Offline (No Internet Permission)** | ✅ | ✅ | ✅ | ❌ *(Requires network/cloud)* |
 | **Auto 30-Day Spam Purge** | ✅ | ❌ *(Manual cleanup)* | ❌ | ❌ |
 | **1-Tap OTP Copy & Auto-Dismiss** | ✅ | ❌ | ⚠️ *(Requires custom rules)* | ⚠️ *(Varies by OEM)* |
-| **Offline Message Categorization** *(Bank, Card, Delivery, Travel, OTP)* | ✅ *(100% On-Device)* | ❌ | ❌ | ⚠️ *(Cloud-based / OEM specific)* |
+| **Keyword-Based Message Tags** *(Bank, Card, Delivery, Travel, OTP)* | ✅ *(On-Device)* | ❌ | ❌ | ⚠️ *(Cloud-based / OEM specific)* |
 | **No Account / No Telemetry** | ✅ | ✅ | ✅ | ❌ |
 
 ## 💻 Build from source (Recommended)

@@ -205,6 +205,7 @@ fun HeimdallApp(
             val targetMsg = prefsManager.getMessageByTimestamp(directOpenTimestamp)
             if (targetMsg != null) {
                 prefsManager.markMessageAsRead(targetMsg.timestamp)
+                NotificationHelper.cancelNotification(context, targetMsg.timestamp)
                 inspectedLogs = prefsManager.getInspectedMessages()
                 selectedMessageForModal = targetMsg.copy(isRead = true)
                 currentScreen = AppScreen.INBOX
@@ -408,11 +409,13 @@ fun HeimdallApp(
                     onOpenSettings = { currentScreen = AppScreen.SETTINGS },
                     onSelectMessage = { message ->
                         prefsManager.markMessageAsRead(message.timestamp)
+                        NotificationHelper.cancelNotification(context, message.timestamp)
                         inspectedLogs = prefsManager.getInspectedMessages()
                         selectedMessageForModal = message.copy(isRead = true)
                     },
                     onMarkAllAsRead = {
                         val count = prefsManager.markAllAsRead()
+                        NotificationHelper.cancelAllNotifications(context)
                         inspectedLogs = prefsManager.getInspectedMessages()
                         Toast.makeText(context, "Marked $count message(s) as read", Toast.LENGTH_SHORT).show()
                     },
