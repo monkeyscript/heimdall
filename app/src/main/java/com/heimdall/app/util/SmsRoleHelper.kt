@@ -140,7 +140,7 @@ object SmsRoleHelper {
                     val timestamp = if (dateIndex != -1) it.getLong(dateIndex) else System.currentTimeMillis()
                     val isRead = if (readIndex != -1) it.getInt(readIndex) == 1 else true
 
-                    val lowerBody = body.lowercase()
+                    val lowerBody = body.replace(Regex("[\\p{Cf}\\u200B-\\u200D\\uFEFF]"), "").lowercase()
                     val matchedKeyword = keywords.firstOrNull { kw -> lowerBody.contains(kw) }
                     val isSpam = matchedKeyword != null
 

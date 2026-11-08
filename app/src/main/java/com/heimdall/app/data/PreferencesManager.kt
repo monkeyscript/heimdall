@@ -43,9 +43,6 @@ class PreferencesManager(context: Context) {
         const val MAX_STORED_MESSAGES = 10000
 
         val DEFAULT_KEYWORDS: Set<String> = emptySet()
-        private val LEGACY_DEFAULT_KEYWORDS = setOf(
-            "loan", "winner", "offer", "crypto", "kyc", "lottery", "rummy", "bonus"
-        )
     }
 
     // Master Switch
@@ -79,12 +76,7 @@ class PreferencesManager(context: Context) {
     fun setShieldEnabled(enabled: Boolean) = setMasterActive(enabled)
 
     fun getKeywords(): Set<String> {
-        val stored = prefs.getStringSet(KEY_KEYWORDS, null) ?: return emptySet()
-        if (stored == LEGACY_DEFAULT_KEYWORDS) {
-            prefs.edit().putStringSet(KEY_KEYWORDS, emptySet()).apply()
-            return emptySet()
-        }
-        return stored
+        return prefs.getStringSet(KEY_KEYWORDS, null) ?: emptySet()
     }
 
     private val reevaluateScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -131,7 +123,7 @@ class PreferencesManager(context: Context) {
 
             for (i in list.indices) {
                 val msg = list[i]
-                val lowerBody = msg.body.lowercase()
+                val lowerBody = msg.body.replace(Regex("[\\p{Cf}\\u200B-\\u200D\\uFEFF]"), "").lowercase()
                 val matched = if (isFilterOn) lowerKeywords.firstOrNull { kw -> lowerBody.contains(kw) } else null
                 val isSpam = matched != null
                 val newCategory = CategoryHelper.detectCategory(msg.sender, msg.body, isSpam).name

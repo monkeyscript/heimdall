@@ -44,7 +44,7 @@ class SmsReceiver : BroadcastReceiver() {
             fullBodyBuilder.append(sms.displayMessageBody)
         }
         val fullBody = fullBodyBuilder.toString()
-        val normalizedBody = fullBody.lowercase()
+        val normalizedBody = fullBody.replace(Regex("[\\p{Cf}\\u200B-\\u200D\\uFEFF]"), "").lowercase()
         val timestamp = System.currentTimeMillis()
 
         Log.d(TAG, "Heimdall ($action, isDefault=$isDefault) received SMS broadcast.")
@@ -53,8 +53,24 @@ class SmsReceiver : BroadcastReceiver() {
         if (!isMasterActive) {
             Log.d(TAG, "Heimdall is Master Inactive.")
             if (isDefault) {
-                // If default SMS app, we must still persist incoming messages to central telephony provider so SMS is not lost
+                // If default SMS app, persist to central telephony provider, log to Heimdall inbox, and notify
                 SmsRoleHelper.writeCleanSmsToTelephonyProvider(context, sender, fullBody, timestamp)
+                val category = CategoryHelper.detectCategory(
+                    sender = sender,
+                    body = fullBody,
+                    isSpam = false
+                )
+                val cleanMessage = InspectedMessage(
+                    timestamp = timestamp,
+                    sender = sender,
+                    body = fullBody,
+                    isSpam = false,
+                    matchedKeyword = null,
+                    isRead = false,
+                    category = category.name
+                )
+                prefsManager.addInspectedMessage(cleanMessage)
+
                 NotificationHelper.showInspectionNotification(
                     context = context,
                     sender = sender,
