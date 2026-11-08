@@ -21,12 +21,15 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
@@ -43,8 +46,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -240,20 +245,21 @@ fun HeimdallApp(
         isShowSpamInFeed = prefsManager.isShowSpamInFeed()
     }
 
-    // One-time initial load of existing inbox messages once default SMS or READ_SMS is available
+    // Initial / full sync of existing inbox messages once default SMS or READ_SMS is available
     LaunchedEffect(isDefaultSms) {
         val hasReadPermission = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.READ_SMS
         ) == PackageManager.PERMISSION_GRANTED
-        if ((isDefaultSms || hasReadPermission) && !prefsManager.hasImportedInitialSms()) {
+        if ((isDefaultSms || hasReadPermission) && !prefsManager.hasImportedFullSms()) {
             withContext(Dispatchers.IO) {
                 val keywords = prefsManager.getKeywords()
-                val oldMessages = SmsRoleHelper.readExistingInboxMessages(context, keywords = keywords, limit = 100)
+                val oldMessages = SmsRoleHelper.readExistingInboxMessages(context, keywords = keywords, limit = PreferencesManager.MAX_STORED_MESSAGES)
                 if (oldMessages.isNotEmpty()) {
                     prefsManager.importInitialMessages(oldMessages)
                 }
                 prefsManager.setImportedInitialSms(true)
+                prefsManager.setImportedFullSms(true)
             }
             inspectedLogs = prefsManager.getInspectedMessages()
         }
@@ -413,6 +419,20 @@ fun HeimdallApp(
                         inspectedLogs = prefsManager.getInspectedMessages()
                         selectedMessageForModal = message.copy(isRead = true)
                     },
+                    onDeleteMessages = { timestamps ->
+                        val count = prefsManager.deleteMessages(timestamps)
+                        val msgsToDelete = inspectedLogs.filter { it.timestamp in timestamps }
+                        coroutineScope.launch(Dispatchers.IO) {
+                            for (m in msgsToDelete) {
+                                SmsRoleHelper.deleteFromTelephonyProvider(context, m.timestamp, m.sender)
+                            }
+                        }
+                        for (ts in timestamps) {
+                            NotificationHelper.cancelNotification(context, ts)
+                        }
+                        inspectedLogs = prefsManager.getInspectedMessages()
+                        Toast.makeText(context, "Deleted $count message(s)", Toast.LENGTH_SHORT).show()
+                    },
                     onMarkAllAsRead = {
                         val count = prefsManager.markAllAsRead()
                         NotificationHelper.cancelAllNotifications(context)
@@ -475,13 +495,26 @@ fun InboxScreen(
     onRequestDefaultSms: () -> Unit,
     onOpenSettings: () -> Unit,
     onSelectMessage: (InspectedMessage) -> Unit,
+    onDeleteMessages: (Set<Long>) -> Unit,
     onMarkAllAsRead: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val haptic = LocalHapticFeedback.current
     var showOnlyUnread by remember { mutableStateOf(false) }
     var rawSearchQuery by remember { mutableStateOf("") }
     var debouncedSearchQuery by remember { mutableStateOf("") }
     var visibleItemCount by remember { mutableIntStateOf(25) }
+
+    var selectedTimestamps by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+
+    val isSelectionMode = selectedTimestamps.isNotEmpty()
+
+    val listState = rememberLazyListState()
+
+    BackHandler(enabled = isSelectionMode) {
+        selectedTimestamps = emptySet()
+    }
 
     val unreadCount = remember(uiMessages, showSpamInFeed) {
         uiMessages.count { !it.raw.isRead && (showSpamInFeed || !it.raw.isSpam) }
@@ -493,9 +526,10 @@ fun InboxScreen(
         debouncedSearchQuery = rawSearchQuery
     }
 
-    // Reset pagination when search, unread, or showSpamInFeed changes
+    // Reset pagination and scroll to top when search, unread, or showSpamInFeed changes
     LaunchedEffect(debouncedSearchQuery, showOnlyUnread, showSpamInFeed) {
         visibleItemCount = 25
+        listState.scrollToItem(0)
     }
 
     val filteredMessages = remember(uiMessages, showSpamInFeed, showOnlyUnread, debouncedSearchQuery) {
@@ -514,7 +548,104 @@ fun InboxScreen(
         filteredMessages.take(visibleItemCount)
     }
 
+    val topMessageTimestamp = displayedMessages.firstOrNull()?.raw?.timestamp
+    var lastTopTimestamp by remember { mutableStateOf<Long?>(null) }
+
+    // Auto-scroll to top when a new message is added to the feed
+    LaunchedEffect(topMessageTimestamp) {
+        if (lastTopTimestamp != null && topMessageTimestamp != null && topMessageTimestamp > lastTopTimestamp!!) {
+            listState.animateScrollToItem(0)
+        }
+        lastTopTimestamp = topMessageTimestamp
+    }
+
     val remainingCount = filteredMessages.size - displayedMessages.size
+
+    if (showDeleteConfirmDialog) {
+        Dialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.7f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth(0.88f)
+                        .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f), RectangleShape),
+                    color = DarkSurface,
+                    shape = RectangleShape
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Text(
+                            text = "// DELETE MESSAGES",
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 13.sp,
+                            letterSpacing = 1.sp,
+                            color = Color(0xFFEF4444)
+                        )
+
+                        Text(
+                            text = "Delete ${selectedTimestamps.size} selected message(s)? Clean messages will also be removed from your phone's SMS storage.",
+                            fontSize = 13.sp,
+                            color = TextSecondary,
+                            lineHeight = 18.sp
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { showDeleteConfirmDialog = false },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(40.dp),
+                                shape = RectangleShape,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary)
+                            ) {
+                                Text("CANCEL", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, letterSpacing = 1.sp)
+                            }
+
+                            Button(
+                                onClick = {
+                                    val toDelete = selectedTimestamps
+                                    selectedTimestamps = emptySet()
+                                    showDeleteConfirmDialog = false
+                                    onDeleteMessages(toDelete)
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(40.dp),
+                                shape = RectangleShape,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFFEF4444).copy(alpha = 0.2f),
+                                    contentColor = Color(0xFFEF4444)
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f))
+                            ) {
+                                Text(
+                                    text = "DELETE (${selectedTimestamps.size})",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    letterSpacing = 1.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     Column(modifier = modifier.fillMaxSize()) {
         // Minimal Top Header
@@ -636,8 +767,58 @@ fun InboxScreen(
                 }
             }
         } else {
-            // Minimal Options Bar (Search on Left + UNREAD Badge on Right)
-            Row(
+            if (isSelectionMode) {
+                // Contextual Multi-Select Bar: Red DELETE on Left + Close on Right
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { showDeleteConfirmDialog = true },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(36.dp),
+                        shape = RectangleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFEF4444).copy(alpha = 0.2f),
+                            contentColor = Color(0xFFEF4444)
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = Color(0xFFEF4444)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "DELETE (${selectedTimestamps.size})",
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            letterSpacing = 1.sp
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { selectedTimestamps = emptySet() },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Cancel selection",
+                            tint = TextPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            } else {
+                // Minimal Options Bar (Search on Left + UNREAD Badge on Right)
+                Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -729,8 +910,9 @@ fun InboxScreen(
                 }
             }
         }
+    }
 
-        HorizontalDivider(color = DarkBorder.copy(alpha = 0.5f), thickness = 1.dp)
+    HorizontalDivider(color = DarkBorder.copy(alpha = 0.5f), thickness = 1.dp)
 
         // Messages Feed with Recycled Composable Items
         if (filteredMessages.isEmpty()) {
@@ -777,6 +959,7 @@ fun InboxScreen(
             }
         } else {
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(vertical = 4.dp)
             ) {
@@ -785,9 +968,27 @@ fun InboxScreen(
                     key = { it.raw.timestamp },
                     contentType = { "message_row" }
                 ) { item ->
+                    val isSelected = item.raw.timestamp in selectedTimestamps
                     InboxMessageRow(
                         item = item,
-                        onSelectMessage = onSelectMessage
+                        isSelected = isSelected,
+                        isSelectionMode = isSelectionMode,
+                        onSelectMessage = onSelectMessage,
+                        onToggleSelect = {
+                            selectedTimestamps = if (isSelected) {
+                                selectedTimestamps - item.raw.timestamp
+                            } else {
+                                selectedTimestamps + item.raw.timestamp
+                            }
+                        },
+                        onLongClickAvatar = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            selectedTimestamps = if (isSelected) {
+                                selectedTimestamps - item.raw.timestamp
+                            } else {
+                                selectedTimestamps + item.raw.timestamp
+                            }
+                        }
                     )
                     HorizontalDivider(color = ROW_DIVIDER_COLOR, thickness = 1.dp)
                 }
@@ -867,36 +1068,77 @@ fun InboxScreen(
 }
 
 // 100% O(1) Fast Composable Row - Fully Skippable
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun InboxMessageRow(
     item: UiMessageItem,
+    isSelected: Boolean,
+    isSelectionMode: Boolean,
     onSelectMessage: (InspectedMessage) -> Unit,
+    onToggleSelect: () -> Unit,
+    onLongClickAvatar: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val message = item.raw
     val category = item.category
     val displayTimestamp = item.formattedTime
 
+    val rowBackground = if (isSelected) {
+        Color(0xFFEF4444).copy(alpha = 0.08f)
+    } else {
+        Color.Transparent
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable { onSelectMessage(message) }
+            .background(rowBackground)
+            .clickable {
+                if (isSelectionMode) {
+                    onToggleSelect()
+                } else {
+                    onSelectMessage(message)
+                }
+            }
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Unified Dark Surface Background
+        // Avatar Box: Long-press trigger only on avatar
         Box(
             modifier = Modifier
                 .size(36.dp)
-                .background(DarkSurfaceVariant)
-                .border(AVATAR_BOX_BORDER, RectangleShape),
+                .background(if (isSelected) Color(0xFFEF4444).copy(alpha = 0.25f) else DarkSurfaceVariant)
+                .border(
+                    width = 1.dp,
+                    color = if (isSelected) Color(0xFFEF4444) else DarkBorder,
+                    shape = RectangleShape
+                )
+                .combinedClickable(
+                    onClick = {
+                        if (isSelectionMode) {
+                            onToggleSelect()
+                        } else {
+                            onSelectMessage(message)
+                        }
+                    },
+                    onLongClick = onLongClickAvatar
+                ),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = category.emoji,
-                fontSize = 16.sp
-            )
+            if (isSelected) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = "Selected",
+                    tint = Color(0xFFEF4444),
+                    modifier = Modifier.size(20.dp)
+                )
+            } else {
+                Text(
+                    text = category.emoji,
+                    fontSize = 16.sp
+                )
+            }
         }
 
         // Message Preview Content

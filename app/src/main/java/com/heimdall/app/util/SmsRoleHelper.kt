@@ -110,7 +110,7 @@ object SmsRoleHelper {
     fun readExistingInboxMessages(
         context: Context,
         keywords: Set<String> = emptySet(),
-        limit: Int = 100
+        limit: Int = 10000
     ): List<com.heimdall.app.data.InspectedMessage> {
         val messages = mutableListOf<com.heimdall.app.data.InspectedMessage>()
         try {

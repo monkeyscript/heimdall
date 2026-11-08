@@ -40,6 +40,8 @@ class PreferencesManager(context: Context) {
         private const val KEY_LAST_SPAM_CLEANUP = "last_spam_cleanup"
         private const val KEY_SHOW_SPAM_IN_FEED = "show_spam_in_feed"
 
+        const val MAX_STORED_MESSAGES = 10000
+
         val DEFAULT_KEYWORDS: Set<String> = emptySet()
         private val LEGACY_DEFAULT_KEYWORDS = setOf(
             "loan", "winner", "offer", "crypto", "kyc", "lottery", "rummy", "bonus"
@@ -176,13 +178,21 @@ class PreferencesManager(context: Context) {
         prefs.edit().putBoolean("has_imported_initial_sms", imported).apply()
     }
 
+    fun hasImportedFullSms(): Boolean {
+        return prefs.getBoolean("has_imported_full_sms_v2", false)
+    }
+
+    fun setImportedFullSms(imported: Boolean) {
+        prefs.edit().putBoolean("has_imported_full_sms_v2", imported).apply()
+    }
+
     fun importInitialMessages(imported: List<InspectedMessage>) {
         synchronized(cacheLock) {
             val current = getInspectedMessagesInternal()
             val currentTimestamps = current.map { it.timestamp }.toSet()
             val newToAdd = imported.filter { it.timestamp !in currentTimestamps }.map { it.copy(isRead = true) }
             val combined = (current + newToAdd).sortedByDescending { it.timestamp }
-            val trimmed = if (combined.size > 100) combined.take(100).toMutableList() else combined.toMutableList()
+            val trimmed = if (combined.size > MAX_STORED_MESSAGES) combined.take(MAX_STORED_MESSAGES).toMutableList() else combined.toMutableList()
             memoryMessagesCache = trimmed
             saveMessagesAsync(trimmed)
             notifyMessagesChanged()
@@ -194,7 +204,7 @@ class PreferencesManager(context: Context) {
         synchronized(cacheLock) {
             val list = getInspectedMessagesInternal().toMutableList()
             list.add(0, message)
-            val trimmedList = if (list.size > 100) list.take(100).toMutableList() else list
+            val trimmedList = if (list.size > MAX_STORED_MESSAGES) list.take(MAX_STORED_MESSAGES).toMutableList() else list
             memoryMessagesCache = trimmedList
             saveMessagesAsync(trimmedList)
             notifyMessagesChanged()
@@ -249,6 +259,22 @@ class PreferencesManager(context: Context) {
                 notifyMessagesChanged()
             }
             return removed
+        }
+    }
+
+    fun deleteMessages(timestamps: Set<Long>): Int {
+        if (timestamps.isEmpty()) return 0
+        synchronized(cacheLock) {
+            val list = getInspectedMessagesInternal().toMutableList()
+            val initialSize = list.size
+            list.removeAll { it.timestamp in timestamps }
+            val removedCount = initialSize - list.size
+            if (removedCount > 0) {
+                memoryMessagesCache = list
+                saveMessagesAsync(list)
+                notifyMessagesChanged()
+            }
+            return removedCount
         }
     }
 
@@ -342,21 +368,30 @@ class PreferencesManager(context: Context) {
         return result
     }
 
+    private val saveScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
     private fun saveMessagesAsync(list: List<InspectedMessage>) {
-        val jsonArray = JSONArray()
-        for (item in list) {
-            val obj = JSONObject().apply {
-                put("timestamp", item.timestamp)
-                put("sender", item.sender)
-                put("body", item.body)
-                put("isSpam", item.isSpam)
-                put("matchedKeyword", item.matchedKeyword ?: "")
-                put("isRead", item.isRead)
-                put("category", item.category)
+        val snapshot = list.toList()
+        saveScope.launch {
+            try {
+                val jsonArray = JSONArray()
+                for (item in snapshot) {
+                    val obj = JSONObject().apply {
+                        put("timestamp", item.timestamp)
+                        put("sender", item.sender)
+                        put("body", item.body)
+                        put("isSpam", item.isSpam)
+                        put("matchedKeyword", item.matchedKeyword ?: "")
+                        put("isRead", item.isRead)
+                        put("category", item.category)
+                    }
+                    jsonArray.put(obj)
+                }
+                prefs.edit().putString(KEY_INSPECTED_LOGS, jsonArray.toString()).apply()
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            jsonArray.put(obj)
         }
-        prefs.edit().putString(KEY_INSPECTED_LOGS, jsonArray.toString()).apply()
     }
 
     fun clearInspectedMessages() {
