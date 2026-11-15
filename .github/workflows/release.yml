@@ -52,3 +52,4 @@ jobs:
         with:
           name: heimdall-release-apk
           path: app/build/outputs/apk/release/Heimdall-*.apk
+

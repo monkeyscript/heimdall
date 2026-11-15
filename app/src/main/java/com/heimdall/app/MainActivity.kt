@@ -109,6 +109,40 @@ data class UiMessageItem(
     val formattedTime: String
 )
 
+@Immutable
+data class UiMessageGroup(
+    val head: UiMessageItem,
+    val subMessages: List<UiMessageItem> = emptyList()
+) {
+    val isStacked: Boolean get() = subMessages.isNotEmpty()
+    val totalCount: Int get() = 1 + subMessages.size
+    val allTimestamps: List<Long> = listOf(head.raw.timestamp) + subMessages.map { it.raw.timestamp }
+    val hasUnread: Boolean get() = !head.raw.isRead || subMessages.any { !it.raw.isRead }
+}
+
+fun groupContiguousMessages(items: List<UiMessageItem>): List<UiMessageGroup> {
+    if (items.isEmpty()) return emptyList()
+    val result = ArrayList<UiMessageGroup>()
+    var currentHead: UiMessageItem? = null
+    var currentSubs = ArrayList<UiMessageItem>()
+
+    for (item in items) {
+        if (currentHead == null) {
+            currentHead = item
+        } else if (currentHead.raw.sender.trim().equals(item.raw.sender.trim(), ignoreCase = true)) {
+            currentSubs.add(item)
+        } else {
+            result.add(UiMessageGroup(currentHead, currentSubs))
+            currentHead = item
+            currentSubs = ArrayList()
+        }
+    }
+    if (currentHead != null) {
+        result.add(UiMessageGroup(currentHead, currentSubs))
+    }
+    return result
+}
+
 class MainActivity : ComponentActivity() {
     private lateinit var prefsManager: PreferencesManager
     private val notificationTimestamp = mutableStateOf<Long?>(null)
@@ -520,6 +554,8 @@ fun InboxScreen(
         uiMessages.count { !it.raw.isRead && (showSpamInFeed || !it.raw.isSpam) }
     }
 
+    var expandedGroupTimestamps by remember { mutableStateOf<Set<Long>>(emptySet()) }
+
     // 200ms Search Debounce
     LaunchedEffect(rawSearchQuery) {
         delay(200L)
@@ -529,6 +565,7 @@ fun InboxScreen(
     // Reset pagination and scroll to top when search, unread, or showSpamInFeed changes
     LaunchedEffect(debouncedSearchQuery, showOnlyUnread, showSpamInFeed) {
         visibleItemCount = 25
+        expandedGroupTimestamps = emptySet()
         listState.scrollToItem(0)
     }
 
@@ -544,11 +581,15 @@ fun InboxScreen(
         }
     }
 
-    val displayedMessages = remember(filteredMessages, visibleItemCount) {
-        filteredMessages.take(visibleItemCount)
+    val groupedMessages = remember(filteredMessages) {
+        groupContiguousMessages(filteredMessages)
     }
 
-    val topMessageTimestamp = displayedMessages.firstOrNull()?.raw?.timestamp
+    val displayedGroups = remember(groupedMessages, visibleItemCount) {
+        groupedMessages.take(visibleItemCount)
+    }
+
+    val topMessageTimestamp = displayedGroups.firstOrNull()?.head?.raw?.timestamp
     var lastTopTimestamp by remember { mutableStateOf<Long?>(null) }
 
     // Auto-scroll to top when a new message is added to the feed
@@ -559,7 +600,7 @@ fun InboxScreen(
         lastTopTimestamp = topMessageTimestamp
     }
 
-    val remainingCount = filteredMessages.size - displayedMessages.size
+    val remainingCount = groupedMessages.size - displayedGroups.size
 
     if (showDeleteConfirmDialog) {
         Dialog(
@@ -964,29 +1005,49 @@ fun InboxScreen(
                 contentPadding = PaddingValues(vertical = 4.dp)
             ) {
                 items(
-                    items = displayedMessages,
-                    key = { it.raw.timestamp },
-                    contentType = { "message_row" }
-                ) { item ->
-                    val isSelected = item.raw.timestamp in selectedTimestamps
-                    InboxMessageRow(
-                        item = item,
-                        isSelected = isSelected,
+                    items = displayedGroups,
+                    key = { it.head.raw.timestamp },
+                    contentType = { "message_group" }
+                ) { group ->
+                    val isExpanded = group.head.raw.timestamp in expandedGroupTimestamps
+                    val isAnySelected = group.allTimestamps.any { it in selectedTimestamps }
+                    val isAllSelected = group.allTimestamps.all { it in selectedTimestamps }
+
+                    InboxMessageGroupRow(
+                        group = group,
+                        isExpanded = isExpanded,
+                        isAnySelected = isAnySelected,
+                        isAllSelected = isAllSelected,
+                        selectedTimestamps = selectedTimestamps,
                         isSelectionMode = isSelectionMode,
                         onSelectMessage = onSelectMessage,
-                        onToggleSelect = {
-                            selectedTimestamps = if (isSelected) {
-                                selectedTimestamps - item.raw.timestamp
+                        onToggleExpand = {
+                            expandedGroupTimestamps = if (isExpanded) {
+                                expandedGroupTimestamps - group.head.raw.timestamp
                             } else {
-                                selectedTimestamps + item.raw.timestamp
+                                expandedGroupTimestamps + group.head.raw.timestamp
                             }
                         },
-                        onLongClickAvatar = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            selectedTimestamps = if (isSelected) {
-                                selectedTimestamps - item.raw.timestamp
+                        onToggleSelectGroup = {
+                            selectedTimestamps = if (isAnySelected) {
+                                selectedTimestamps - group.allTimestamps.toSet()
                             } else {
-                                selectedTimestamps + item.raw.timestamp
+                                selectedTimestamps + group.allTimestamps.toSet()
+                            }
+                        },
+                        onToggleSelectTimestamp = { timestamp ->
+                            selectedTimestamps = if (timestamp in selectedTimestamps) {
+                                selectedTimestamps - timestamp
+                            } else {
+                                selectedTimestamps + timestamp
+                            }
+                        },
+                        onLongClickGroup = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            selectedTimestamps = if (isAnySelected) {
+                                selectedTimestamps - group.allTimestamps.toSet()
+                            } else {
+                                selectedTimestamps + group.allTimestamps.toSet()
                             }
                         }
                     )
@@ -1067,150 +1128,334 @@ fun InboxScreen(
 }
 }
 
-// 100% O(1) Fast Composable Row - Fully Skippable
+// 100% O(1) Fast Composable Group Row with 3D Stacked Deck & Tree Accordion
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun InboxMessageRow(
-    item: UiMessageItem,
-    isSelected: Boolean,
+fun InboxMessageGroupRow(
+    group: UiMessageGroup,
+    isExpanded: Boolean,
+    isAnySelected: Boolean,
+    isAllSelected: Boolean,
+    selectedTimestamps: Set<Long>,
     isSelectionMode: Boolean,
     onSelectMessage: (InspectedMessage) -> Unit,
-    onToggleSelect: () -> Unit,
-    onLongClickAvatar: () -> Unit,
+    onToggleExpand: () -> Unit,
+    onToggleSelectGroup: () -> Unit,
+    onToggleSelectTimestamp: (Long) -> Unit,
+    onLongClickGroup: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val message = item.raw
-    val category = item.category
-    val displayTimestamp = item.formattedTime
+    val message = group.head.raw
+    val category = group.head.category
+    val displayTimestamp = group.head.formattedTime
+    val isStacked = group.isStacked
+    val isHeadSelected = group.head.raw.timestamp in selectedTimestamps
 
-    val rowBackground = if (isSelected) {
+    val rowBackground = if (isHeadSelected || (!isExpanded && isAnySelected)) {
         Color(0xFFEF4444).copy(alpha = 0.08f)
     } else {
         Color.Transparent
     }
 
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(rowBackground)
-            .clickable {
-                if (isSelectionMode) {
-                    onToggleSelect()
-                } else {
-                    onSelectMessage(message)
-                }
-            }
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // Avatar Box: Long-press trigger only on avatar
-        Box(
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
             modifier = Modifier
-                .size(36.dp)
-                .background(if (isSelected) Color(0xFFEF4444).copy(alpha = 0.25f) else DarkSurfaceVariant)
-                .border(
-                    width = 1.dp,
-                    color = if (isSelected) Color(0xFFEF4444) else DarkBorder,
-                    shape = RectangleShape
-                )
-                .combinedClickable(
-                    onClick = {
-                        if (isSelectionMode) {
-                            onToggleSelect()
-                        } else {
-                            onSelectMessage(message)
-                        }
-                    },
-                    onLongClick = onLongClickAvatar
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            if (isSelected) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = "Selected",
-                    tint = Color(0xFFEF4444),
-                    modifier = Modifier.size(20.dp)
-                )
-            } else {
-                Text(
-                    text = category.emoji,
-                    fontSize = 16.sp
-                )
-            }
-        }
-
-        // Message Preview Content
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = message.sender,
-                        fontSize = 15.sp,
-                        fontWeight = if (!message.isRead) FontWeight.Black else FontWeight.Bold,
-                        color = if (!message.isRead) TextPrimary else TextSecondary
-                    )
-                    if (message.isSpam && !message.matchedKeyword.isNullOrEmpty()) {
-                        Surface(
-                            shape = RectangleShape,
-                            color = YellowAccentSubtle,
-                            border = SPAM_TAG_BORDER
-                        ) {
-                            Text(
-                                text = message.matchedKeyword.uppercase(),
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                color = YellowAccent,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                            )
-                        }
+                .fillMaxWidth()
+                .background(rowBackground)
+                .clickable {
+                    if (isSelectionMode) {
+                        onToggleSelectGroup()
+                    } else {
+                        onSelectMessage(message)
                     }
                 }
-
-                // Timestamp + Minimal Unread Dot
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = displayTimestamp,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = if (!message.isRead) YellowAccent else TextMuted
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // 3D Avatar Box: Multi-layered physical deck when stacked
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .combinedClickable(
+                        onClick = {
+                            if (isSelectionMode) {
+                                onToggleSelectGroup()
+                            } else if (isStacked) {
+                                onToggleExpand()
+                            } else {
+                                onSelectMessage(message)
+                            }
+                        },
+                        onLongClick = onLongClickGroup
                     )
+            ) {
+                if (isStacked) {
+                    // Backmost card (Layer 2)
+                    Box(
+                        modifier = Modifier
+                            .offset(x = 4.dp, y = 4.dp)
+                            .size(36.dp)
+                            .background(DarkBackground)
+                            .border(
+                                1.dp,
+                                if (isAnySelected) Color(0xFFEF4444).copy(alpha = 0.4f) else DarkBorder.copy(alpha = 0.6f),
+                                RectangleShape
+                            )
+                    )
+                    // Middle card (Layer 1)
+                    Box(
+                        modifier = Modifier
+                            .offset(x = 2.dp, y = 2.dp)
+                            .size(36.dp)
+                            .background(DarkSurfaceVariant)
+                            .border(
+                                1.dp,
+                                if (isAnySelected) Color(0xFFEF4444).copy(alpha = 0.7f) else DarkBorder.copy(alpha = 0.85f),
+                                RectangleShape
+                            )
+                    )
+                }
 
-                    // Minimal Unread Indicator Dot
-                    if (!message.isRead) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .background(YellowAccent, CircleShape)
+                // Front card (Layer 0)
+                Box(
+                    modifier = Modifier
+                        .offset(x = 0.dp, y = 0.dp)
+                        .size(36.dp)
+                        .background(if (isAnySelected) Color(0xFFEF4444).copy(alpha = 0.25f) else DarkSurfaceVariant)
+                        .border(
+                            width = 1.dp,
+                            color = if (isAnySelected) Color(0xFFEF4444) else DarkBorder,
+                            shape = RectangleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isAnySelected) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Selected",
+                            tint = Color(0xFFEF4444),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    } else {
+                        Text(
+                            text = category.emoji,
+                            fontSize = 16.sp
                         )
                     }
                 }
             }
 
-            Text(
-                text = message.body,
-                fontSize = 13.sp,
-                color = if (!message.isRead) TextPrimary else TextSecondary,
-                fontWeight = if (!message.isRead) FontWeight.Medium else FontWeight.Normal,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 18.sp
-            )
+            // Message Preview Content
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = message.sender,
+                            fontSize = 15.sp,
+                            fontWeight = if (group.hasUnread) FontWeight.Black else FontWeight.Bold,
+                            color = if (group.hasUnread) TextPrimary else TextSecondary
+                        )
+                        if (message.isSpam && !message.matchedKeyword.isNullOrEmpty()) {
+                            Surface(
+                                shape = RectangleShape,
+                                color = YellowAccentSubtle,
+                                border = SPAM_TAG_BORDER
+                            ) {
+                                Text(
+                                    text = message.matchedKeyword.uppercase(),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = YellowAccent,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Stack Pill Badge + Timestamp + Minimal Unread Dot
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (isStacked) {
+                            Surface(
+                                shape = RectangleShape,
+                                color = YellowAccentSubtle,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, YellowAccent.copy(alpha = 0.7f)),
+                                modifier = Modifier.clickable { onToggleExpand() }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "+${group.subMessages.size} ${if (group.subMessages.size == 1) "MSG" else "MSGS"}",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = YellowAccent
+                                    )
+                                    Text(
+                                        text = if (isExpanded) "▲" else "▼",
+                                        fontSize = 8.sp,
+                                        color = YellowAccent
+                                    )
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = displayTimestamp,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = if (group.hasUnread) YellowAccent else TextMuted
+                        )
+
+                        // Minimal Unread Indicator Dot
+                        if (group.hasUnread) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .background(YellowAccent, CircleShape)
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    text = message.body,
+                    fontSize = 13.sp,
+                    color = if (group.hasUnread) TextPrimary else TextSecondary,
+                    fontWeight = if (group.hasUnread) FontWeight.Medium else FontWeight.Normal,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 18.sp
+                )
+            }
+        }
+
+        // Inline Terminal Tree Accordion for Stacked Sub-messages
+        AnimatedVisibility(
+            visible = isExpanded && isStacked,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF141416))
+                    .padding(bottom = 4.dp)
+            ) {
+                group.subMessages.forEachIndexed { index, subItem ->
+                    val isLast = index == group.subMessages.lastIndex
+                    val isSubSelected = subItem.raw.timestamp in selectedTimestamps
+                    val subRowBackground = if (isSubSelected) {
+                        Color(0xFFEF4444).copy(alpha = 0.08f)
+                    } else {
+                        Color.Transparent
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(subRowBackground)
+                            .clickable {
+                                if (isSelectionMode) {
+                                    onToggleSelectTimestamp(subItem.raw.timestamp)
+                                } else {
+                                    onSelectMessage(subItem.raw)
+                                }
+                            }
+                            .padding(start = 36.dp, end = 16.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = if (isLast) "└──" else "├──",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSubSelected) Color(0xFFEF4444).copy(alpha = 0.85f) else YellowAccent.copy(alpha = 0.85f),
+                            modifier = Modifier.padding(top = 1.dp)
+                        )
+
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = subItem.formattedTime,
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = if (isSubSelected) Color(0xFFEF4444) else if (!subItem.raw.isRead) YellowAccent else TextMuted
+                                    )
+                                    if (!subItem.raw.isRead) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(5.dp)
+                                                .background(if (isSubSelected) Color(0xFFEF4444) else YellowAccent, CircleShape)
+                                        )
+                                    }
+                                }
+
+                                if (isSelectionMode) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .background(if (isSubSelected) Color(0xFFEF4444) else Color.Transparent)
+                                            .border(
+                                                1.dp,
+                                                if (isSubSelected) Color(0xFFEF4444) else DarkBorder,
+                                                RectangleShape
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (isSubSelected) {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text(
+                                text = subItem.raw.body,
+                                fontSize = 12.sp,
+                                color = if (!subItem.raw.isRead) TextPrimary else TextSecondary,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

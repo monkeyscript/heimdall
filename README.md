@@ -1,6 +1,7 @@
 # Heimdall 👁️🛡️
 
 [![Download APK](https://img.shields.io/github/v/release/monkeyscript/heimdall?label=Download%20APK&logo=android&color=success)](https://github.com/monkeyscript/heimdall/releases/latest)
+[![F-Droid](https://img.shields.io/badge/F--Droid-Pending%20Index-blue?logo=f-droid)](https://f-droid.org/packages/com.heimdall.app/)
 [![No Internet](https://img.shields.io/badge/Permissions-Zero%20Internet-brightgreen.svg)]()
 
 An Android SMS app built to silently block spam and keep it out of your system message storage.
@@ -28,6 +29,8 @@ Heimdall works differently:
 - 🔇 **Silent spam blocking**: Blocked messages make no sound, show no alerts, and never touch the system database.
 - 🗑️ **Auto-deletes old spam**: Blocked messages kept in Heimdall are automatically deleted after 30 days.
 - 🎯 **Custom keyword rules**: Add any words or phrases to your blocklist (works with any language or script).
+- 🛡️ **Anti-evasion defense**: Automatically neutralizes hidden zero-width spaces and invisible formatting characters (`\p{Cf}`) so spammers cannot bypass your keyword filters.
+- 📦 **Stacked sender threads**: Consecutive messages from the same sender (telecom recharge bursts, delivery updates) cluster into 3D cards with expandable monospace tree connectors (`├──`, `└──`).
 - 🔑 **1-tap OTP copy**: Extracts verification codes and puts a "Copy" button directly on the notification. Clicking it copies the code and dismisses the alert.
 - 🔒 **100% offline**: No internet permission requested. None of your messages or data can leave your device.
 - 🏷️ **Message categories**: Tags incoming messages as Bank, Card, Delivery, Travel, or OTP based on common keywords in the message body. This is for visual organization only — it does not block anything.
@@ -60,6 +63,7 @@ cd heimdall
 
 ## 📦 Download APK
 
+- **F-Droid**: Coming soon on [F-Droid](https://f-droid.org/packages/com.heimdall.app/) *(recipe merged into official data repository)*.
 - **Direct Download**: Grab the latest signed APK from [GitHub Releases](https://github.com/monkeyscript/heimdall/releases/latest).
 - **Auto-Updates**: Add `https://github.com/monkeyscript/heimdall` to [Obtainium](https://github.com/ImranR98/Obtainium) for automated release updates.
 
