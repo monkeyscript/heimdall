@@ -1,8 +1,8 @@
 # Heimdall 👁️🛡️
 
-[![Download APK](https://img.shields.io/github/v/release/monkeyscript/heimdall?label=Download%20APK&logo=android&color=success)](https://github.com/monkeyscript/heimdall/releases/latest)
 [![F-Droid](https://img.shields.io/f-droid/v/com.heimdall.app?logo=f-droid&color=blue)](https://f-droid.org/packages/com.heimdall.app/)
 [![No Internet](https://img.shields.io/badge/Permissions-Zero%20Internet-brightgreen.svg)]()
+[![GitHub Release](https://img.shields.io/github/v/release/monkeyscript/heimdall?label=GitHub%20Release&logo=github&color=gray)](https://github.com/monkeyscript/heimdall/releases/latest)
 
 An Android SMS app built to silently block spam and keep it out of your system message storage.
 
@@ -46,7 +46,48 @@ Heimdall works differently:
 | **Keyword-Based Message Tags** *(Bank, Card, Delivery, Travel, OTP)* | ✅ *(On-Device)* | ❌ | ❌ | ⚠️ *(Cloud-based / OEM specific)* |
 | **No Account / No Telemetry** | ✅ | ✅ | ✅ | ❌ |
 
-## 💻 Build from source (Recommended)
+## 📦 Installation
+
+### 🟢 Recommended: F-Droid
+
+Install via [F-Droid](https://f-droid.org/packages/com.heimdall.app/) for seamless installation, automatic updates, and zero unknown-app warnings or Play Protect prompts.
+
+[<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png"
+     alt="Get it on F-Droid"
+     height="70">](https://f-droid.org/packages/com.heimdall.app/)
+
+---
+
+### ⚪ Alternatives: Direct APK & Sideloading
+
+If you do not use F-Droid, you can download the release directly or use an automated APK updater:
+
+- **GitHub Releases**: Grab the latest standalone APK from [GitHub Releases](https://github.com/monkeyscript/heimdall/releases/latest).
+- **Obtainium**: Add `https://github.com/monkeyscript/heimdall` to [Obtainium](https://github.com/ImranR98/Obtainium) for automated release updates directly from GitHub.
+
+<details>
+<summary>🔧 <b>Direct APK sideloading troubleshooting</b></summary>
+<br>
+
+When installing an APK directly from a browser or file manager instead of an app store like F-Droid, Android may prompt standard security and permission checks:
+
+1. **Allow Unknown Apps (Chrome / Files)**:
+   * **Settings Path**: Open phone **Settings** → Search for **"Install unknown apps"** → Select **Chrome** or **Files** (whichever app you downloaded the APK with) → Toggle on **Allow from this source**.
+   * *(Or from the install prompt: Tap **Settings** on the warning popup → Turn on **Allow from this source** → Press **Back** → Tap **Install**).*
+
+2. **Google Play Protect Warning**:
+   * Tap **More details** → Tap **Install anyway** *(Heimdall is 100% offline with zero internet permissions)*.
+   * *To pause scanning*: Open **Play Store** → Tap Profile icon (top right) → Tap **Play Protect** → Tap ⚙️ **Settings** (top right) → Turn off **Scan apps with Play Protect**.
+
+3. **Restricted Permissions (if SMS toggle is greyed out)**:
+   * Open phone **Settings** → **Apps** → **Heimdall** → Tap **`⋮`** (top right) → Tap **Allow restricted settings** → Verify with fingerprint/PIN.
+
+4. **Set as Default SMS App**:
+   * When Heimdall launches, it automatically prompts: *"Set Heimdall as your default SMS app?"* → Select **Heimdall** → Tap **Set as default**. This grants SMS access and loads your existing inbox.
+
+</details>
+
+## 💻 Build from source
 
 Requires JDK 17+ and the Android SDK.
 
@@ -60,34 +101,6 @@ cd heimdall
 # Or install directly to a connected phone
 ./gradlew installDebug
 ```
-
-## 📦 Download APK
-
-- **F-Droid**: Install directly via [F-Droid](https://f-droid.org/packages/com.heimdall.app/).
-- **Direct Download**: Grab the latest signed APK from [GitHub Releases](https://github.com/monkeyscript/heimdall/releases/latest).
-- **Auto-Updates**: Add `https://github.com/monkeyscript/heimdall` to [Obtainium](https://github.com/ImranR98/Obtainium) for automated release updates.
-
-<details>
-<summary>🔧 <b>Installation troubleshooting</b></summary>
-<br>
-
-Because Heimdall is distributed directly on GitHub (sideloaded outside the Google Play Store), you may see standard Android security prompts during setup. Here is how to resolve them:
-
-1. **Allow Unknown Apps (Chrome / Files)**:
-   * **Settings Path**: Open phone **Settings** → Search for **"Install unknown apps"** → Select **Chrome** or **Files** (whichever app you downloaded the APK with) → Toggle on **Allow from this source**.
-   * *(Or from the install prompt: Tap **Settings** on the warning popup → Turn on **Allow from this source** → Press **Back** → Tap **Install**).*
-
-2. **Google Play Protect**:
-   * Tap **More details** → Tap **Install anyway** *(Heimdall is 100% offline with zero internet permissions)*.
-   * *To pause scanning*: Open **Play Store** → Tap Profile icon (top right) → Tap **Play Protect** → Tap ⚙️ **Settings** (top right) → Turn off **Scan apps with Play Protect**.
-
-3. **Restricted Permissions (if SMS toggle is greyed out)**:
-   * Open phone **Settings** → **Apps** → **Heimdall** → Tap **`⋮`** (top right) → Tap **Allow restricted settings** → Verify with fingerprint/PIN.
-
-4. **Set as Default SMS App**:
-   * When Heimdall launches, it automatically prompts: *"Set Heimdall as your default SMS app?"* → Select **Heimdall** → Tap **Set as default**. This grants SMS access and loads your existing inbox.
-
-</details>
 
 ## 💡 Feedback & Feature Requests
 
