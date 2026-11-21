@@ -1,0 +1,3 @@
+• Import existing inbox messages on first launch.
+• Mark imported messages as read automatically.
+• Added restricted settings instructions for Android 13+.

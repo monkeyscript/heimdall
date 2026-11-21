@@ -1,21 +1,16 @@
-Heimdall is an on-device, privacy-first SMS spam blocker for Android.
-
-Unlike conventional spam blockers that upload your private conversations and contact lists to remote servers, Heimdall runs entirely locally on your device with zero telemetry, zero analytics, and zero external tracking.
+Heimdall is a 100% offline, privacy-first SMS firewall for Android. It silently intercepts spam before it reaches your system SMS database—no cloud servers, no accounts, and zero internet permission.
 
 FEATURES
 
-• 100% On-Device Protection: Incoming messages are analyzed strictly on your device. Your messages never leave your phone.
-• Silent Spam Interception: When set as your default SMS app, Heimdall intercepts spam broadcasts before they reach Android's system SMS database, preventing spam notifications from waking your screen.
-• Automatic Clean Message Sync: Legitimate messages automatically sync into Android's system SMS database and show instant notifications.
-• Custom Keyword Rules: Add or remove keywords to your blocklist. Any incoming SMS containing a keyword is silently blocked. Changing keywords re-evaluates your existing messages instantly.
-• Message Categories: Tags incoming messages as Bank, Card, Delivery, Travel, or OTP based on common keywords in the message body. This is for visual organization only and does not block anything.
-• One-Tap OTP Copying: Actionable notification buttons allow you to copy verification codes and one-time passwords directly with a single tap.
-• Minimalist Cyberpunk Terminal UI: Fast, responsive, dark-mode monospace interface built with Jetpack Compose.
-• Completely Open Source: Licensed under the Apache 2.0 license. Transparent and auditable.
+• Pre-Storage Spam Drop: Blocked messages never reach Android's system SMS database or wake your screen.
+• 100% Offline: Zero internet permission requested. No data ever leaves your device.
+• Anti-Evasion Defense: Automatically neutralizes hidden zero-width spaces spammers use to bypass filters.
+• Custom Keyword Rules: Block any keyword or phrase across any language.
+• 1-Tap OTP Copy: Instant copy button on notifications with auto-dismiss.
+• Stacked Sender Threads: Groups bursts from the same sender into compact monospace trees.
+• Auto 30-Day Purge: Blocked spam is automatically cleaned up after 30 days.
+• Smart Tags: Organizes clean messages into Bank, Card, Delivery, Travel, or OTP categories.
 
-IMPORTANT LIMITATIONS
+NOTE ON SENDING SMS
 
-Heimdall is designed specifically as an incoming SMS spam blocker, not a full messaging client:
-• No Outbound SMS: Heimdall does not compose or send outbound text messages.
-• No MMS Support: Incoming multimedia messages (MMS) are discarded and not displayed.
-• To send text messages or view MMS, you can temporarily switch back to your primary messaging app.
+Heimdall is designed for reading and filtering incoming SMS, not composing new messages. To send SMS or RCS, switch back to Google Messages via the built-in shortcut in Settings.

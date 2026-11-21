@@ -4,7 +4,7 @@
 [![No Internet](https://img.shields.io/badge/Permissions-Zero%20Internet-brightgreen.svg)]()
 [![GitHub Release](https://img.shields.io/github/v/release/monkeyscript/heimdall?label=GitHub%20Release&logo=github&color=gray)](https://github.com/monkeyscript/heimdall/releases/latest)
 
-An Android SMS app built to silently block spam and keep it out of your system message storage.
+An Android SMS app that silently intercepts spam before it reaches your phone's message database—keeping your inbox clean even if you switch apps.
 
 <p align="center">
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/1_inbox.png" width="31%" alt="Heimdall Inbox" />
@@ -12,96 +12,32 @@ An Android SMS app built to silently block spam and keep it out of your system m
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/3_settings.png" width="31%" alt="Spam Rules & Settings" />
 </p>
 
-## 🎭 Behind the curtain
+## 🎭 How It Works
 
-Most spam blockers on Android just move spam into a "Spam" folder. The messages still get saved into your phone's central SMS database, and they still show up if you switch messaging apps or restore backups.
+Most spam blockers just move spam into a folder—it still lives in your phone's SMS database, shows up if you switch messaging apps, and gets backed up to the cloud.
 
-Heimdall works differently:
-1. When set as your default SMS app, it intercepts incoming messages before they hit Android's system database.
-2. If a message matches your spam rules, it gets dropped silently—no notification, no vibration, and it is **never written to the system SMS database**.
-3. Real messages (bank alerts, OTPs, personal texts) are written to Android's SMS database normally.
-4. If you ever switch back to Google Messages, your inbox stays clean because the spam was never stored on your phone in the first place.
+Heimdall drops spam **before** it is ever saved. When a message matches your blocklist, it is silently discarded—no notification, no vibration, and it **never touches the system SMS database**. Real messages pass through normally. If you ever switch back to Google Messages, your inbox is already clean.
 
-> 💬 **Note on sending SMS**: Heimdall is designed for reading and filtering incoming messages, not composing new ones. If you need to send an SMS or use RCS, switch your default app back to Google Messages (there is a shortcut button right in Settings). All your clean messages will be right there.
+## ✨ Features
 
-## 🎁 Bonus points
+- 🛡️ **Pre-Storage Spam Drop** — Blocked messages never reach Android's SMS database or wake your screen.
+- 🔒 **100% Offline** — Zero internet permission. No data ever leaves your device.
+- 🎯 **Custom Keyword Rules** — Block any word or phrase, in any language, with built-in anti-evasion filters.
+- 🔑 **1-Tap OTP Copy** — Copies verification codes from notifications with a single tap and auto-dismisses the alert.
+- 🏷️ **Smart Tags** — Organizes clean messages into Bank, Card, Delivery, Travel, and OTP categories.
 
-- 🔇 **Silent spam blocking**: Blocked messages make no sound, show no alerts, and never touch the system database.
-- 🗑️ **Auto-deletes old spam**: Blocked messages kept in Heimdall are automatically deleted after 30 days.
-- 🎯 **Custom keyword rules**: Add any words or phrases to your blocklist (works with any language or script).
-- 🛡️ **Anti-evasion defense**: Automatically neutralizes hidden zero-width spaces and invisible formatting characters (`\p{Cf}`) so spammers cannot bypass your keyword filters.
-- 📦 **Stacked sender threads**: Consecutive messages from the same sender (telecom recharge bursts, delivery updates) cluster into 3D cards with expandable monospace tree connectors (`├──`, `└──`).
-- 🔑 **1-tap OTP copy**: Extracts verification codes and puts a "Copy" button directly on the notification. Clicking it copies the code and dismisses the alert.
-- 🔒 **100% offline**: No internet permission requested. None of your messages or data can leave your device.
-- 🏷️ **Message categories**: Tags incoming messages as Bank, Card, Delivery, Travel, or OTP based on common keywords in the message body. This is for visual organization only — it does not block anything.
-
-## ⚖️ How it stacks up
-
-| Feature | Heimdall | Standard FOSS SMS (Fossify / QKSMS) | Notification Filters (e.g., Buzzkill) | Proprietary Apps (Google Messages / Truecaller) |
-| :--- | :---: | :---: | :---: | :---: |
-| **Silent Pre-Storage Drop** *(Spam never reaches system SMS DB)* | ✅ | ❌ *(Stored in DB)* | ❌ *(Dismisses alerts only)* | ❌ *(Stored in DB)* |
-| **100% Offline (No Internet Permission)** | ✅ | ✅ | ✅ | ❌ *(Requires network/cloud)* |
-| **Auto 30-Day Spam Purge** | ✅ | ❌ *(Manual cleanup)* | ❌ | ❌ |
-| **1-Tap OTP Copy & Auto-Dismiss** | ✅ | ❌ | ⚠️ *(Requires custom rules)* | ⚠️ *(Varies by OEM)* |
-| **Keyword-Based Message Tags** *(Bank, Card, Delivery, Travel, OTP)* | ✅ *(On-Device)* | ❌ | ❌ | ⚠️ *(Cloud-based / OEM specific)* |
-| **No Account / No Telemetry** | ✅ | ✅ | ✅ | ❌ |
+> 📖 For a detailed feature breakdown and comparison with other apps, see the [Features & Comparison Guide](docs/features.md).
 
 ## 📦 Installation
 
-### 🟢 Recommended: F-Droid
-
-Install via [F-Droid](https://f-droid.org/packages/com.heimdall.app/) for seamless installation, automatic updates, and zero unknown-app warnings or Play Protect prompts.
+Install via F-Droid for seamless setup and automatic updates:
 
 [<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png"
      alt="Get it on F-Droid"
-     height="70">](https://f-droid.org/packages/com.heimdall.app/)
+     height="75">](https://f-droid.org/packages/com.heimdall.app/)
 
----
-
-### ⚪ Alternatives: Direct APK & Sideloading
-
-If you do not use F-Droid, you can download the release directly or use an automated APK updater:
-
-- **GitHub Releases**: Grab the latest standalone APK from [GitHub Releases](https://github.com/monkeyscript/heimdall/releases/latest).
-- **Obtainium**: Add `https://github.com/monkeyscript/heimdall` to [Obtainium](https://github.com/ImranR98/Obtainium) for automated release updates directly from GitHub.
-
-<details>
-<summary>🔧 <b>Direct APK sideloading troubleshooting</b></summary>
-<br>
-
-When installing an APK directly from a browser or file manager instead of an app store like F-Droid, Android may prompt standard security and permission checks:
-
-1. **Allow Unknown Apps (Chrome / Files)**:
-   * **Settings Path**: Open phone **Settings** → Search for **"Install unknown apps"** → Select **Chrome** or **Files** (whichever app you downloaded the APK with) → Toggle on **Allow from this source**.
-   * *(Or from the install prompt: Tap **Settings** on the warning popup → Turn on **Allow from this source** → Press **Back** → Tap **Install**).*
-
-2. **Google Play Protect Warning**:
-   * Tap **More details** → Tap **Install anyway** *(Heimdall is 100% offline with zero internet permissions)*.
-   * *To pause scanning*: Open **Play Store** → Tap Profile icon (top right) → Tap **Play Protect** → Tap ⚙️ **Settings** (top right) → Turn off **Scan apps with Play Protect**.
-
-3. **Restricted Permissions (if SMS toggle is greyed out)**:
-   * Open phone **Settings** → **Apps** → **Heimdall** → Tap **`⋮`** (top right) → Tap **Allow restricted settings** → Verify with fingerprint/PIN.
-
-4. **Set as Default SMS App**:
-   * When Heimdall launches, it automatically prompts: *"Set Heimdall as your default SMS app?"* → Select **Heimdall** → Tap **Set as default**. This grants SMS access and loads your existing inbox.
-
-</details>
-
-## 💻 Build from source
-
-Requires JDK 17+ and the Android SDK.
-
-```bash
-git clone https://github.com/monkeyscript/heimdall.git
-cd heimdall
-
-# Build signed release APK
-./gradlew assembleRelease
-
-# Or install directly to a connected phone
-./gradlew installDebug
-```
+> 📖 Looking for direct APK downloads, Obtainium, or building from source? See the [Installation Guide](docs/installation.md).
 
 ## 💡 Feedback & Feature Requests
 
-Have a feature request, suggestion, or found a bug? Please [open an issue](https://github.com/monkeyscript/heimdall/issues)—feedback and contributions are always welcome!
+Have a suggestion or found a bug? Please [open an issue](https://github.com/monkeyscript/heimdall/issues)—feedback and contributions are always welcome!
