@@ -1,7 +1,7 @@
 # Heimdall 👁️🛡️
 
 [![Download APK](https://img.shields.io/github/v/release/monkeyscript/heimdall?label=Download%20APK&logo=android&color=success)](https://github.com/monkeyscript/heimdall/releases/latest)
-[![F-Droid](https://img.shields.io/badge/F--Droid-Pending%20Index-blue?logo=f-droid)](https://f-droid.org/packages/com.heimdall.app/)
+[![F-Droid](https://img.shields.io/f-droid/v/com.heimdall.app?logo=f-droid&color=blue)](https://f-droid.org/packages/com.heimdall.app/)
 [![No Internet](https://img.shields.io/badge/Permissions-Zero%20Internet-brightgreen.svg)]()
 
 An Android SMS app built to silently block spam and keep it out of your system message storage.
@@ -63,7 +63,7 @@ cd heimdall
 
 ## 📦 Download APK
 
-- **F-Droid**: Coming soon on [F-Droid](https://f-droid.org/packages/com.heimdall.app/) *(recipe merged into official data repository)*.
+- **F-Droid**: Install directly via [F-Droid](https://f-droid.org/packages/com.heimdall.app/).
 - **Direct Download**: Grab the latest signed APK from [GitHub Releases](https://github.com/monkeyscript/heimdall/releases/latest).
 - **Auto-Updates**: Add `https://github.com/monkeyscript/heimdall` to [Obtainium](https://github.com/ImranR98/Obtainium) for automated release updates.
 
