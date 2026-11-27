@@ -109,10 +109,11 @@ object SmsRoleHelper {
      */
     fun readExistingInboxMessages(
         context: Context,
-        keywords: Set<String> = emptySet(),
+        rules: List<com.heimdall.app.data.SpamRule> = emptyList(),
         limit: Int = 10000
     ): List<com.heimdall.app.data.InspectedMessage> {
         val messages = mutableListOf<com.heimdall.app.data.InspectedMessage>()
+        val compiledRules = SpamRuleHelper.compileRules(rules)
         try {
             val projection = arrayOf(
                 Telephony.Sms.ADDRESS,
@@ -140,8 +141,9 @@ object SmsRoleHelper {
                     val timestamp = if (dateIndex != -1) it.getLong(dateIndex) else System.currentTimeMillis()
                     val isRead = if (readIndex != -1) it.getInt(readIndex) == 1 else true
 
-                    val lowerBody = body.replace(Regex("[\\p{Cf}\\u200B-\\u200D\\uFEFF]"), "").lowercase()
-                    val matchedKeyword = keywords.firstOrNull { kw -> lowerBody.contains(kw) }
+                    val strippedBody = SpamRuleHelper.stripInvisibleChars(body)
+                    val matchedRule = SpamRuleHelper.findFirstMatch(strippedBody, strippedBody.lowercase(), compiledRules)
+                    val matchedKeyword = matchedRule?.pattern
                     val isSpam = matchedKeyword != null
 
                     val category = CategoryHelper.detectCategory(sender, body, isSpam).name

@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.compose.runtime.mutableLongStateOf
 import com.heimdall.app.util.CategoryHelper
+import com.heimdall.app.util.SpamRuleHelper
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -18,6 +19,11 @@ data class InspectedMessage(
     val matchedKeyword: String?,
     val isRead: Boolean = false,
     val category: String = "CHAT"
+)
+
+data class SpamRule(
+    val pattern: String,
+    val isRegex: Boolean = false
 )
 
 class PreferencesManager(context: Context) {
@@ -33,8 +39,8 @@ class PreferencesManager(context: Context) {
         private val cacheLock = Any()
 
         private const val KEY_MASTER_ACTIVE = "master_active"
-        private const val KEY_FILTER_ENABLED = "filter_enabled"
         private const val KEY_KEYWORDS = "filtered_keywords"
+        private const val KEY_REGEX_KEYWORDS = "filtered_regex_keywords"
         private const val KEY_BLOCKED_COUNT = "blocked_count"
         private const val KEY_INSPECTED_LOGS = "inspected_logs"
         private const val KEY_LAST_SPAM_CLEANUP = "last_spam_cleanup"
@@ -54,15 +60,6 @@ class PreferencesManager(context: Context) {
         prefs.edit().putBoolean(KEY_MASTER_ACTIVE, enabled).apply()
     }
 
-    // Sub-toggle for Spam Filters
-    fun isFilterEnabled(): Boolean {
-        return prefs.getBoolean(KEY_FILTER_ENABLED, true)
-    }
-
-    fun setFilterEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_FILTER_ENABLED, enabled).apply()
-    }
-
     // Show/Hide Spam in Main Feed
     fun isShowSpamInFeed(): Boolean {
         return prefs.getBoolean(KEY_SHOW_SPAM_IN_FEED, false)
@@ -79,26 +76,45 @@ class PreferencesManager(context: Context) {
         return prefs.getStringSet(KEY_KEYWORDS, null) ?: emptySet()
     }
 
+    fun getRegexKeywords(): Set<String> {
+        return prefs.getStringSet(KEY_REGEX_KEYWORDS, null) ?: emptySet()
+    }
+
+    fun getSpamRules(): List<SpamRule> {
+        val normal = getKeywords().map { SpamRule(pattern = it, isRegex = false) }
+        val regex = getRegexKeywords().map { SpamRule(pattern = it, isRegex = true) }
+        return (normal + regex).sortedBy { it.pattern.lowercase() }
+    }
+
     private val reevaluateScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var reevaluateJob: Job? = null
 
-    fun addKeyword(keyword: String): Boolean {
-        val trimmed = keyword.trim().lowercase()
-        if (trimmed.isEmpty()) return false
-        val current = getKeywords().toMutableSet()
-        val added = current.add(trimmed)
+    fun addKeyword(keyword: String): Boolean = addSpamRule(pattern = keyword, isRegex = false)
+
+    fun removeKeyword(keyword: String): Boolean = removeSpamRule(SpamRule(pattern = keyword, isRegex = false))
+
+    fun addSpamRule(pattern: String, isRegex: Boolean): Boolean {
+        val normalized = if (isRegex) pattern.trim() else pattern.trim().lowercase()
+        if (normalized.isEmpty()) return false
+        if (isRegex && SpamRuleHelper.compileRegex(normalized) == null) return false
+
+        val key = if (isRegex) KEY_REGEX_KEYWORDS else KEY_KEYWORDS
+        val current = HashSet(prefs.getStringSet(key, null) ?: emptySet())
+        val added = current.add(normalized)
         if (added) {
-            prefs.edit().putStringSet(KEY_KEYWORDS, current).apply()
+            prefs.edit().putStringSet(key, current).apply()
             triggerReevaluation(150L)
         }
         return added
     }
 
-    fun removeKeyword(keyword: String): Boolean {
-        val current = getKeywords().toMutableSet()
-        val removed = current.remove(keyword.trim().lowercase())
+    fun removeSpamRule(rule: SpamRule): Boolean {
+        val target = if (rule.isRegex) rule.pattern.trim() else rule.pattern.trim().lowercase()
+        val key = if (rule.isRegex) KEY_REGEX_KEYWORDS else KEY_KEYWORDS
+        val current = HashSet(prefs.getStringSet(key, null) ?: emptySet())
+        val removed = current.remove(target)
         if (removed) {
-            prefs.edit().putStringSet(KEY_KEYWORDS, current).apply()
+            prefs.edit().putStringSet(key, current).apply()
             triggerReevaluation(150L)
         }
         return removed
@@ -114,17 +130,21 @@ class PreferencesManager(context: Context) {
         }
     }
 
-    fun reevaluateMessagesWithKeywords(activeKeywords: Set<String> = getKeywords()) {
+    fun reevaluateMessagesWithKeywords(activeRules: List<SpamRule> = getSpamRules()) {
         synchronized(cacheLock) {
             val list = getInspectedMessagesInternal().toMutableList()
             var changed = false
-            val lowerKeywords = activeKeywords.map { it.lowercase() }
-            val isFilterOn = isFilterEnabled() && isMasterActive()
+            val compiledRules = SpamRuleHelper.compileRules(activeRules)
+            val isFilterOn = isMasterActive()
 
             for (i in list.indices) {
                 val msg = list[i]
-                val lowerBody = msg.body.replace(Regex("[\\p{Cf}\\u200B-\\u200D\\uFEFF]"), "").lowercase()
-                val matched = if (isFilterOn) lowerKeywords.firstOrNull { kw -> lowerBody.contains(kw) } else null
+                val strippedBody = SpamRuleHelper.stripInvisibleChars(msg.body)
+                val matched = if (isFilterOn) {
+                    SpamRuleHelper.findFirstMatch(strippedBody, strippedBody.lowercase(), compiledRules)?.pattern
+                } else {
+                    null
+                }
                 val isSpam = matched != null
                 val newCategory = CategoryHelper.detectCategory(msg.sender, msg.body, isSpam).name
 

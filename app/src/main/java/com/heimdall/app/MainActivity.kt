@@ -63,6 +63,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import com.heimdall.app.data.InspectedMessage
 import com.heimdall.app.data.PreferencesManager
+import com.heimdall.app.data.SpamRule
 import com.heimdall.app.ui.theme.*
 import com.heimdall.app.util.CategoryHelper
 import com.heimdall.app.util.ClickableLinkifiedText
@@ -70,6 +71,7 @@ import com.heimdall.app.util.MessageCategory
 import com.heimdall.app.util.NotificationHelper
 import com.heimdall.app.util.OtpHelper
 import com.heimdall.app.util.SmsRoleHelper
+import com.heimdall.app.util.SpamRuleHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -197,9 +199,8 @@ fun HeimdallApp(
     var isDefaultSms by remember { mutableStateOf(SmsRoleHelper.isDefaultSmsApp(context)) }
     var currentScreen by remember { mutableStateOf(AppScreen.INBOX) }
     var inspectedLogs by remember { mutableStateOf(prefsManager.getInspectedMessages()) }
-    var keywordsList by remember { mutableStateOf(prefsManager.getKeywords().sorted()) }
+    var spamRulesList by remember { mutableStateOf(prefsManager.getSpamRules()) }
     var isMasterActive by remember { mutableStateOf(prefsManager.isMasterActive()) }
-    var isFilterEnabled by remember { mutableStateOf(prefsManager.isFilterEnabled()) }
     var isShowSpamInFeed by remember { mutableStateOf(prefsManager.isShowSpamInFeed()) }
 
     // Single-permission launcher for notifications (Android 13+)
@@ -273,9 +274,8 @@ fun HeimdallApp(
     LaunchedEffect(currentScreen) {
         isDefaultSms = SmsRoleHelper.isDefaultSmsApp(context)
         inspectedLogs = prefsManager.getInspectedMessages()
-        keywordsList = prefsManager.getKeywords().sorted()
+        spamRulesList = prefsManager.getSpamRules()
         isMasterActive = prefsManager.isMasterActive()
-        isFilterEnabled = prefsManager.isFilterEnabled()
         isShowSpamInFeed = prefsManager.isShowSpamInFeed()
     }
 
@@ -287,8 +287,8 @@ fun HeimdallApp(
         ) == PackageManager.PERMISSION_GRANTED
         if ((isDefaultSms || hasReadPermission) && !prefsManager.hasImportedFullSms()) {
             withContext(Dispatchers.IO) {
-                val keywords = prefsManager.getKeywords()
-                val oldMessages = SmsRoleHelper.readExistingInboxMessages(context, keywords = keywords, limit = PreferencesManager.MAX_STORED_MESSAGES)
+                val rules = prefsManager.getSpamRules()
+                val oldMessages = SmsRoleHelper.readExistingInboxMessages(context, rules = rules, limit = PreferencesManager.MAX_STORED_MESSAGES)
                 if (oldMessages.isNotEmpty()) {
                     prefsManager.importInitialMessages(oldMessages)
                 }
@@ -482,19 +482,12 @@ fun HeimdallApp(
                 SettingsScreen(
                     prefsManager = prefsManager,
                     isMasterActive = isMasterActive,
-                    isFilterEnabled = isFilterEnabled,
                     isShowSpamInFeed = isShowSpamInFeed,
-                    keywordsList = keywordsList,
+                    spamRulesList = spamRulesList,
                     messages = inspectedLogs,
                     onMasterToggle = { enabled ->
                         isMasterActive = enabled
                         prefsManager.setMasterActive(enabled)
-                        prefsManager.triggerReevaluation(0L)
-                        inspectedLogs = prefsManager.getInspectedMessages()
-                    },
-                    onFilterToggle = { enabled ->
-                        isFilterEnabled = enabled
-                        prefsManager.setFilterEnabled(enabled)
                         prefsManager.triggerReevaluation(0L)
                         inspectedLogs = prefsManager.getInspectedMessages()
                     },
@@ -503,7 +496,7 @@ fun HeimdallApp(
                         prefsManager.setShowSpamInFeed(enabled)
                     },
                     onKeywordsUpdated = {
-                        keywordsList = prefsManager.getKeywords().sorted()
+                        spamRulesList = prefsManager.getSpamRules()
                         inspectedLogs = prefsManager.getInspectedMessages()
                     },
                     onDeleteAllSpam = {
@@ -1692,12 +1685,10 @@ fun MessageDetailModal(
 fun SettingsScreen(
     prefsManager: PreferencesManager,
     isMasterActive: Boolean,
-    isFilterEnabled: Boolean,
     isShowSpamInFeed: Boolean,
-    keywordsList: List<String>,
+    spamRulesList: List<SpamRule>,
     messages: List<InspectedMessage>,
     onMasterToggle: (Boolean) -> Unit,
-    onFilterToggle: (Boolean) -> Unit,
     onShowSpamInFeedToggle: (Boolean) -> Unit,
     onKeywordsUpdated: () -> Unit,
     onDeleteAllSpam: () -> Unit,
@@ -1707,21 +1698,130 @@ fun SettingsScreen(
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
     var newKeywordText by remember { mutableStateOf("") }
-    var isAdvancedExpanded by remember { mutableStateOf(false) }
+    var pendingRegexCandidate by remember { mutableStateOf<String?>(null) }
     val spamCount = remember(messages) { messages.count { it.isSpam } }
+
+    val commitRule = { pattern: String, isRegex: Boolean ->
+        val alreadyExists = spamRulesList.any {
+            if (isRegex) it.isRegex && it.pattern == pattern
+            else !it.isRegex && it.pattern.equals(pattern, ignoreCase = true)
+        }
+        if (alreadyExists) {
+            Toast.makeText(context, "'$pattern' already exists", Toast.LENGTH_SHORT).show()
+        } else {
+            prefsManager.addSpamRule(pattern, isRegex = isRegex)
+            onKeywordsUpdated()
+            newKeywordText = ""
+            keyboardController?.hide()
+            val label = if (isRegex) "Added regex '$pattern'" else "Added '$pattern'"
+            Toast.makeText(context, label, Toast.LENGTH_SHORT).show()
+        }
+        pendingRegexCandidate = null
+    }
 
     val onAddKeyword = {
         val trimmed = newKeywordText.trim()
         if (trimmed.isEmpty()) {
             Toast.makeText(context, "Please enter a keyword", Toast.LENGTH_SHORT).show()
-        } else if (keywordsList.any { it.equals(trimmed, ignoreCase = true) }) {
-            Toast.makeText(context, "'$trimmed' already exists", Toast.LENGTH_SHORT).show()
+        } else if (SpamRuleHelper.looksLikeRegex(trimmed)) {
+            val existsPlain = spamRulesList.any { !it.isRegex && it.pattern.equals(trimmed, ignoreCase = true) }
+            val existsRegex = spamRulesList.any { it.isRegex && it.pattern == trimmed }
+            if (existsPlain && existsRegex) {
+                Toast.makeText(context, "'$trimmed' already exists", Toast.LENGTH_SHORT).show()
+            } else {
+                keyboardController?.hide()
+                pendingRegexCandidate = trimmed
+            }
         } else {
-            prefsManager.addKeyword(trimmed)
-            onKeywordsUpdated()
-            newKeywordText = ""
-            keyboardController?.hide()
-            Toast.makeText(context, "Added '$trimmed'", Toast.LENGTH_SHORT).show()
+            commitRule(trimmed, false)
+        }
+    }
+
+    pendingRegexCandidate?.let { candidate ->
+        Dialog(
+            onDismissRequest = { pendingRegexCandidate = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 32.dp)
+                    .border(1.dp, DarkBorder, RectangleShape),
+                shape = RectangleShape,
+                color = DarkSurface
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "// PATTERN DETECTED",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            letterSpacing = 1.sp,
+                            color = YellowAccent
+                        )
+
+                        IconButton(
+                            onClick = { pendingRegexCandidate = null },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = TextMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "\"$candidate\" looks like a regex pattern. How should Heimdall match it?",
+                        fontSize = 14.sp,
+                        color = TextSecondary,
+                        lineHeight = 20.sp
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { commitRule(candidate, false) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp),
+                            shape = RectangleShape,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary)
+                        ) {
+                            Text("PLAIN TEXT", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, letterSpacing = 0.8.sp)
+                        }
+
+                        Button(
+                            onClick = { commitRule(candidate, true) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp),
+                            shape = RectangleShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = YellowAccent,
+                                contentColor = DarkBackground
+                            )
+                        ) {
+                            Text("REGEX", fontWeight = FontWeight.Black, fontSize = 12.sp, letterSpacing = 0.8.sp)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1763,7 +1863,7 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
-            // Master Active Switch & Expandable Advanced Card
+            // Master Active Switch
             item {
                 Surface(
                     modifier = Modifier
@@ -1772,132 +1872,44 @@ fun SettingsScreen(
                     shape = RectangleShape,
                     color = DarkSurface
                 ) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        // Clean Master Active Row
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                Text(
-                                    text = "ACTIVE",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 1.sp,
-                                    color = TextPrimary
-                                )
-                                Text(
-                                    text = "Master firewall switch for incoming SMS",
-                                    fontSize = 11.sp,
-                                    color = TextMuted,
-                                    lineHeight = 15.sp
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            Switch(
-                                checked = isMasterActive,
-                                onCheckedChange = onMasterToggle,
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = DarkBackground,
-                                    checkedTrackColor = YellowAccent,
-                                    uncheckedThumbColor = TextMuted,
-                                    uncheckedTrackColor = DarkSurfaceVariant
-                                )
-                            )
-                        }
-
-                        HorizontalDivider(color = DarkBorder.copy(alpha = 0.5f), thickness = 1.dp)
-
-                        // Simplified Expandable Advanced Header
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { isAdvancedExpanded = !isAdvancedExpanded }
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Text(
-                                text = "// ADVANCED",
-                                fontSize = 11.sp,
+                                text = "ACTIVE",
+                                fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                color = if (isMasterActive) YellowAccent else TextMuted
+                                letterSpacing = 1.sp,
+                                color = TextPrimary
                             )
-
-                            Icon(
-                                imageVector = if (isAdvancedExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                contentDescription = "Toggle Advanced",
-                                tint = if (isMasterActive) YellowAccent else TextMuted,
-                                modifier = Modifier.size(18.dp)
+                            Text(
+                                text = if (isMasterActive) "Blocking spam for incoming SMS" else "Paused (SMS & alerts still active)",
+                                fontSize = 11.sp,
+                                color = TextMuted,
+                                lineHeight = 15.sp
                             )
                         }
 
-                        // Advanced Sub-Settings Dropdown
-                        AnimatedVisibility(
-                            visible = isAdvancedExpanded,
-                            enter = expandVertically() + fadeIn(),
-                            exit = shrinkVertically() + fadeOut()
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(DarkBackground.copy(alpha = 0.5f))
-                                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                                    .alpha(if (isMasterActive) 1f else 0.4f),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                // Sub-toggle: SPAM FILTER
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(
-                                        modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                                    ) {
-                                        Text(
-                                            text = "SPAM FILTER",
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            letterSpacing = 0.5.sp,
-                                            color = TextPrimary
-                                        )
-                                        Text(
-                                            text = if (isFilterEnabled) "Scan incoming SMS for spam keywords" else "Filter disabled (SMS & alerts still active)",
-                                            fontSize = 11.sp,
-                                            color = TextMuted,
-                                            lineHeight = 15.sp
-                                        )
-                                    }
+                        Spacer(modifier = Modifier.width(12.dp))
 
-                                    Spacer(modifier = Modifier.width(12.dp))
-
-                                    Switch(
-                                        checked = isFilterEnabled && isMasterActive,
-                                        onCheckedChange = { if (isMasterActive) onFilterToggle(it) },
-                                        enabled = isMasterActive,
-                                        colors = SwitchDefaults.colors(
-                                            checkedThumbColor = DarkBackground,
-                                            checkedTrackColor = YellowAccent,
-                                            uncheckedThumbColor = TextMuted,
-                                            uncheckedTrackColor = DarkSurfaceVariant,
-                                            disabledCheckedThumbColor = DarkBackground,
-                                            disabledCheckedTrackColor = YellowAccent.copy(alpha = 0.4f)
-                                        )
-                                    )
-                                }
-                            }
-                        }
+                        Switch(
+                            checked = isMasterActive,
+                            onCheckedChange = onMasterToggle,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = DarkBackground,
+                                checkedTrackColor = YellowAccent,
+                                uncheckedThumbColor = TextMuted,
+                                uncheckedTrackColor = DarkSurfaceVariant
+                            )
+                        )
                     }
                 }
             }
@@ -1908,7 +1920,7 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .border(1.dp, DarkBorder, RectangleShape)
-                        .alpha(if (isMasterActive && isFilterEnabled) 1f else 0.45f),
+                        .alpha(if (isMasterActive) 1f else 0.45f),
                     shape = RectangleShape,
                     color = DarkSurface
                 ) {
@@ -1932,10 +1944,10 @@ fun SettingsScreen(
                                 color = TextSecondary
                             )
                             Text(
-                                text = if (isFilterEnabled) "[ ${keywordsList.size} ACTIVE ]" else "[ PAUSED ]",
+                                text = if (isMasterActive) "[ ${spamRulesList.size} ACTIVE ]" else "[ PAUSED ]",
                                 fontSize = 11.sp,
                                 fontFamily = FontFamily.Monospace,
-                                color = if (isFilterEnabled) YellowAccent else TextMuted
+                                color = if (isMasterActive) YellowAccent else TextMuted
                             )
                         }
 
@@ -1997,7 +2009,7 @@ fun SettingsScreen(
                         }
 
                         // Tag Chips
-                        if (keywordsList.isEmpty()) {
+                        if (spamRulesList.isEmpty()) {
                             Text(
                                 text = "No active keyword rules.",
                                 color = TextMuted,
@@ -2009,13 +2021,13 @@ fun SettingsScreen(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                keywordsList.forEach { keyword ->
+                                spamRulesList.forEach { rule ->
                                     TechKeywordChip(
-                                        keyword = keyword,
+                                        rule = rule,
                                         onDelete = {
-                                            prefsManager.removeKeyword(keyword)
+                                            prefsManager.removeSpamRule(rule)
                                             onKeywordsUpdated()
-                                            Toast.makeText(context, "Removed '$keyword'", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Removed '${rule.pattern}'", Toast.LENGTH_SHORT).show()
                                         }
                                     )
                                 }
@@ -2132,7 +2144,7 @@ fun SettingsScreen(
 // Sharp Futuristic Tech Tag Chip
 @Composable
 fun TechKeywordChip(
-    keyword: String,
+    rule: SpamRule,
     onDelete: () -> Unit
 ) {
     Surface(
@@ -2141,29 +2153,51 @@ fun TechKeywordChip(
         border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier.height(IntrinsicSize.Min),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = keyword.uppercase(),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                fontFamily = FontFamily.Monospace,
-                color = TextPrimary
-            )
-            Box(
-                modifier = Modifier
-                    .size(14.dp)
-                    .clickable { onDelete() },
-                contentAlignment = Alignment.Center
+            if (rule.isRegex) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .background(YellowAccent)
+                        .padding(horizontal = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "R",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = FontFamily.Monospace,
+                        color = DarkBackground
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Delete $keyword",
-                    tint = TextMuted,
-                    modifier = Modifier.size(12.dp)
+                Text(
+                    text = if (rule.isRegex) rule.pattern else rule.pattern.uppercase(),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    fontFamily = FontFamily.Monospace,
+                    color = TextPrimary
                 )
+                Box(
+                    modifier = Modifier
+                        .size(14.dp)
+                        .clickable { onDelete() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Delete ${rule.pattern}",
+                        tint = TextMuted,
+                        modifier = Modifier.size(12.dp)
+                    )
+                }
             }
         }
     }

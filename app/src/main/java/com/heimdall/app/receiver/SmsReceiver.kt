@@ -10,6 +10,7 @@ import com.heimdall.app.data.PreferencesManager
 import com.heimdall.app.util.CategoryHelper
 import com.heimdall.app.util.NotificationHelper
 import com.heimdall.app.util.SmsRoleHelper
+import com.heimdall.app.util.SpamRuleHelper
 
 class SmsReceiver : BroadcastReceiver() {
 
@@ -44,7 +45,8 @@ class SmsReceiver : BroadcastReceiver() {
             fullBodyBuilder.append(sms.displayMessageBody)
         }
         val fullBody = fullBodyBuilder.toString()
-        val normalizedBody = fullBody.replace(Regex("[\\p{Cf}\\u200B-\\u200D\\uFEFF]"), "").lowercase()
+        val strippedBody = SpamRuleHelper.stripInvisibleChars(fullBody)
+        val normalizedBody = strippedBody.lowercase()
         val timestamp = System.currentTimeMillis()
 
         Log.d(TAG, "Heimdall ($action, isDefault=$isDefault) received SMS broadcast.")
@@ -83,22 +85,12 @@ class SmsReceiver : BroadcastReceiver() {
             return
         }
 
-        val isFilterEnabled = prefsManager.isFilterEnabled()
-        val keywords = prefsManager.getKeywords()
+        val compiledRules = SpamRuleHelper.compileRules(prefsManager.getSpamRules())
 
-        // 1. Keyword evaluation (Only if Spam Filter toggle is ON)
-        var matchedKeyword: String? = null
-        var isSpam = false
-
-        if (isFilterEnabled) {
-            for (kw in keywords) {
-                if (normalizedBody.contains(kw.lowercase())) {
-                    isSpam = true
-                    matchedKeyword = kw
-                    break
-                }
-            }
-        }
+        // 1. Keyword/Regex evaluation
+        val matchedRule = SpamRuleHelper.findFirstMatch(strippedBody, normalizedBody, compiledRules)
+        val matchedKeyword = matchedRule?.pattern
+        val isSpam = matchedKeyword != null
 
         if (isSpam) {
             prefsManager.incrementBlockedCount()

@@ -2,29 +2,27 @@ package com.heimdall.app.util
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Typeface
 import android.net.Uri
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.method.LinkMovementMethod
+import android.text.style.ClickableSpan
+import android.util.TypedValue
+import android.view.View
+import android.widget.TextView
 import android.widget.Toast
-import androidx.compose.foundation.text.ClickableText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
-import com.heimdall.app.ui.theme.TextPrimary
-import com.heimdall.app.ui.theme.YellowAccent
+import androidx.compose.ui.viewinterop.AndroidView
 import java.util.regex.Pattern
 
 object LinkifyHelper {
-
-    private const val TAG_URL = "URL"
-    private const val TAG_PHONE = "PHONE"
 
     // Supported top-level domains for strict, safe link identification
     private const val VALID_TLDS =
@@ -44,95 +42,82 @@ object LinkifyHelper {
         """(?:\b(?:\+91[-.\s]?|0)?[6-9]\d{4}[-.\s]?\d{5}\b)|(?:\b1[89]00[-.\s]?\d{3}[-.\s]?\d{3,4}\b)|(?:\+\d{1,3}[-.\s]?(?:\(?\d{2,4}\)?[-.\s]?)?\d{3,5}[-.\s]?\d{4,5})|(?:\b0\d{2,4}[-.\s]?\d{6,8}\b)"""
     )
 
-    fun createAnnotatedMessage(text: String): AnnotatedString {
-        return buildAnnotatedString {
-            append(text)
+    fun createAnnotatedMessage(text: String, context: Context): SpannableString {
+        val spannable = SpannableString(text)
+        val accentColor = 0xFFF5B718.toInt()
 
-            val occupiedRanges = mutableListOf<IntRange>()
+        val occupiedRanges = mutableListOf<IntRange>()
 
-            // 1. Identify OTP location to strictly prevent it from being classified as a phone number
-            val extractedOtp = OtpHelper.extractOtp(text)
-            if (extractedOtp != null) {
-                val otpIndex = text.indexOf(extractedOtp)
-                if (otpIndex >= 0) {
-                    occupiedRanges.add(otpIndex until (otpIndex + extractedOtp.length))
-                }
+        // 1. Identify OTP location to strictly prevent it from being classified as a phone number
+        val extractedOtp = OtpHelper.extractOtp(text)
+        if (extractedOtp != null) {
+            val otpIndex = text.indexOf(extractedOtp)
+            if (otpIndex >= 0) {
+                occupiedRanges.add(otpIndex until (otpIndex + extractedOtp.length))
             }
+        }
 
-            // 2. Detect and style URLs with strict domain validation & cleanup
-            val urlMatcher = STRICT_URL_REGEX.matcher(text)
-            while (urlMatcher.find()) {
-                val start = urlMatcher.start()
-                val matchedUrl = urlMatcher.group()
+        // 2. Detect and style URLs with strict domain validation & cleanup
+        val urlMatcher = STRICT_URL_REGEX.matcher(text)
+        while (urlMatcher.find()) {
+            val start = urlMatcher.start()
+            val matchedUrl = urlMatcher.group()
 
-                // Clean trailing punctuation
-                val cleanUrl = matchedUrl.trimEnd('.', ',', ')', '(', '!', '?', ';', ':', '>', ']', '[')
-                val cleanEnd = start + cleanUrl.length
+            // Clean trailing punctuation
+            val cleanUrl = matchedUrl.trimEnd('.', ',', ')', '(', '!', '?', ';', ':', '>', ']', '[')
+            val cleanEnd = start + cleanUrl.length
 
-                if (cleanUrl.isNotEmpty()) {
-                    addStyle(
-                        style = SpanStyle(
-                            color = YellowAccent,
-                            fontWeight = FontWeight.Bold,
-                            textDecoration = TextDecoration.Underline
-                        ),
-                        start = start,
-                        end = cleanEnd
-                    )
-                    addStringAnnotation(
-                        tag = TAG_URL,
-                        annotation = cleanUrl,
-                        start = start,
-                        end = cleanEnd
-                    )
-                    occupiedRanges.add(start until cleanEnd)
-                }
+            if (cleanUrl.isNotEmpty()) {
+                spannable.setSpan(object : ClickableSpan() {
+                    override fun onClick(widget: View) { openUrl(context, cleanUrl) }
+                    override fun updateDrawState(ds: android.text.TextPaint) {
+                        ds.color = accentColor
+                        ds.isFakeBoldText = true
+                        ds.isUnderlineText = true
+                    }
+                }, start, cleanEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                occupiedRanges.add(start until cleanEnd)
             }
+        }
 
-            // 3. Detect and style Genuine Phone Numbers (excluding OTPs & URLs)
-            val phoneMatcher = STRICT_PHONE_REGEX.matcher(text)
-            while (phoneMatcher.find()) {
-                val start = phoneMatcher.start()
-                val end = phoneMatcher.end()
-                val matchedPhone = phoneMatcher.group().trim()
+        // 3. Detect and style Genuine Phone Numbers (excluding OTPs & URLs)
+        val phoneMatcher = STRICT_PHONE_REGEX.matcher(text)
+        while (phoneMatcher.find()) {
+            val start = phoneMatcher.start()
+            val end = phoneMatcher.end()
+            val matchedPhone = phoneMatcher.group().trim()
 
-                // Ensure it has at least 10 digits (or is an 1800/1900 toll free number)
-                val digitCount = matchedPhone.count { it.isDigit() }
-                val isTollFree = matchedPhone.startsWith("1800") || matchedPhone.startsWith("1900")
-                val isGenuinePhone = (digitCount in 10..15) || (isTollFree && digitCount in 10..11)
+            // Ensure it has at least 10 digits (or is an 1800/1900 toll free number)
+            val digitCount = matchedPhone.count { it.isDigit() }
+            val isTollFree = matchedPhone.startsWith("1800") || matchedPhone.startsWith("1900")
+            val isGenuinePhone = (digitCount in 10..15) || (isTollFree && digitCount in 10..11)
 
-                if (isGenuinePhone) {
-                    val overlaps = occupiedRanges.any { range -> start < range.last && end > range.first }
-                    if (!overlaps) {
-                        // Check preceding characters to ensure it's not a price/currency (e.g. Rs. 5000000000)
-                        val prefixSubstring = if (start >= 4) text.substring(start - 4, start).lowercase() else ""
-                        val isCurrency = prefixSubstring.contains("rs") ||
-                                prefixSubstring.contains("inr") ||
-                                prefixSubstring.contains("₹") ||
-                                prefixSubstring.contains("$")
+            if (isGenuinePhone) {
+                val overlaps = occupiedRanges.any { range -> start < range.last && end > range.first }
+                if (!overlaps) {
+                    // Check preceding characters to ensure it's not a price/currency (e.g. Rs. 5000000000)
+                    val prefixSubstring = if (start >= 4) text.substring(start - 4, start).lowercase() else ""
+                    val isCurrency = prefixSubstring.contains("rs") ||
+                            prefixSubstring.contains("inr") ||
+                            prefixSubstring.contains("₹") ||
+                            prefixSubstring.contains("$")
 
-                        if (!isCurrency) {
-                            addStyle(
-                                style = SpanStyle(
-                                    color = YellowAccent,
-                                    fontWeight = FontWeight.Bold,
-                                    textDecoration = TextDecoration.Underline
-                                ),
-                                start = start,
-                                end = end
-                            )
-                            addStringAnnotation(
-                                tag = TAG_PHONE,
-                                annotation = matchedPhone,
-                                start = start,
-                                end = end
-                            )
-                            occupiedRanges.add(start until end)
-                        }
+                    if (!isCurrency) {
+                        spannable.setSpan(object : ClickableSpan() {
+                            override fun onClick(widget: View) { dialPhone(context, matchedPhone) }
+                            override fun updateDrawState(ds: android.text.TextPaint) {
+                                ds.color = accentColor
+                                ds.isFakeBoldText = true
+                                ds.isUnderlineText = true
+                            }
+                        }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        occupiedRanges.add(start until end)
                     }
                 }
             }
         }
+
+        return spannable
     }
 
     /**
@@ -188,32 +173,27 @@ fun ClickableLinkifiedText(
     lineHeight: TextUnit = 22.sp
 ) {
     val context = LocalContext.current
-    val annotatedString = remember(text) { LinkifyHelper.createAnnotatedMessage(text) }
+    val density = LocalDensity.current
+    val fontSizePx = with(density) { fontSize.toPx() }
+    val lineHeightPx = with(density) { lineHeight.toPx() }
+    val spannable = remember(text) { LinkifyHelper.createAnnotatedMessage(text, context) }
 
-    ClickableText(
-        text = annotatedString,
+    AndroidView(
         modifier = modifier,
-        style = TextStyle(
-            color = TextPrimary,
-            fontSize = fontSize,
-            lineHeight = lineHeight
-        ),
-        onClick = { offset ->
-            // Check for URL click
-            val urlAnnotations = annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
-            if (urlAnnotations.isNotEmpty()) {
-                val url = urlAnnotations.first().item
-                LinkifyHelper.openUrl(context, url)
-                return@ClickableText
+        factory = { ctx ->
+            TextView(ctx).apply {
+                setTextColor(0xFFF4F4F5.toInt())       // TextPrimary
+                setLinkTextColor(0xFFF5B718.toInt())    // YellowAccent
+                setTextSize(TypedValue.COMPLEX_UNIT_PX, fontSizePx)
+                setLineSpacing(lineHeightPx - fontSizePx, 1f)
+                setTextIsSelectable(true)
+                movementMethod = LinkMovementMethod.getInstance()
+                highlightColor = 0x40F5B718             // subtle yellow selection highlight
+                typeface = Typeface.DEFAULT
             }
-
-            // Check for Phone click
-            val phoneAnnotations = annotatedString.getStringAnnotations(tag = "PHONE", start = offset, end = offset)
-            if (phoneAnnotations.isNotEmpty()) {
-                val phone = phoneAnnotations.first().item
-                LinkifyHelper.dialPhone(context, phone)
-                return@ClickableText
-            }
+        },
+        update = { tv ->
+            tv.text = spannable
         }
     )
 }

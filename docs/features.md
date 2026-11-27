@@ -29,8 +29,9 @@ Heimdall works differently:
 
 ## ✨ Feature Details
 
-### 🎯 Custom Keyword Rules
-- Add any words, sender IDs, or phrases to your blocklist from Settings.
+### 🎯 Custom Keyword & Regex Rules
+- Add plain words, phrases, or regular expressions to your blocklist from Settings.
+- Regex patterns are automatically detected with a prompt to match as **Regex** or **Plain Text**, and tagged with an **R** badge in your rules list.
 - Works across all languages and Unicode scripts.
 - Editing your rules re-evaluates your existing inbox instantly.
 

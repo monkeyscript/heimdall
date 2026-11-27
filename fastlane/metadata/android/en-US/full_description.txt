@@ -5,7 +5,7 @@ FEATURES
 • Pre-Storage Spam Drop: Blocked messages never reach Android's system SMS database or wake your screen.
 • 100% Offline: Zero internet permission requested. No data ever leaves your device.
 • Anti-Evasion Defense: Automatically neutralizes hidden zero-width spaces spammers use to bypass filters.
-• Custom Keyword Rules: Block any keyword or phrase across any language.
+• Custom Keyword & Regex Rules: Block any keyword, phrase, or regex pattern across any language.
 • 1-Tap OTP Copy: Instant copy button on notifications with auto-dismiss.
 • Stacked Sender Threads: Groups bursts from the same sender into compact monospace trees.
 • Auto 30-Day Purge: Blocked spam is automatically cleaned up after 30 days.
