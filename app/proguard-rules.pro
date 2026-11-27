@@ -1,4 +1,4 @@
-# Proguard / R8 rules for Heimdall
+# Proguard / R8 rules for Messagate
 
 # Keep Android components
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod

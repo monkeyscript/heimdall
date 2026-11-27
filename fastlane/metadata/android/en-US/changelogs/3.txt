@@ -1,3 +1,0 @@
-• Dynamic spam rules — adding or removing keywords re-evaluates your inbox instantly.
-• Scroll performance improvements for large inboxes.
-• Refined default SMS app activation flow.

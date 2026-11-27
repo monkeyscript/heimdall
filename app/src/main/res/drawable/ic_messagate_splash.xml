@@ -1,0 +1,26 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!--
+      Android 12+ masks the splash icon to the centred 72dp safe zone.
+      The 24-unit logo is scaled 2x (48dp) and centred, leaving a 12dp margin
+      inside the mask so no part of the stroke is cropped.
+    -->
+    <group
+        android:scaleX="2"
+        android:scaleY="2"
+        android:translateX="30"
+        android:translateY="30">
+        <path
+            android:fillColor="@android:color/transparent"
+            android:strokeColor="#F5B718"
+            android:strokeWidth="1.5"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M19,2.5 H7.5 Q1.5,2.5 1.5,8.5 V22.3 L6.5,19.5 H16.5 Q22.5,19.5 22.5,13.5 V12 H17 V6 L12,10 L7,6 V11.5 Q7,15 12,17 Q17,15 17,12" />
+    </group>
+
+</vector>

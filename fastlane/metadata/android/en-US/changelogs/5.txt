@@ -1,4 +1,0 @@
-• Accurate permission and feature claims in metadata.
-• Disabled Android backup for privacy.
-• Shared cache improvements.
-• Notifications now dismiss properly after OTP copy.

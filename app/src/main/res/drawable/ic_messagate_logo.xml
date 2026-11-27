@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- G (bubble chat) + M (perisai) dalam satu garis tanpa putus -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#F5B718"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M19,2.5 H7.5 Q1.5,2.5 1.5,8.5 V22.3 L6.5,19.5 H16.5 Q22.5,19.5 22.5,13.5 V12 H17 V6 L12,10 L7,6 V11.5 Q7,15 12,17 Q17,15 17,12" />
+
+</vector>

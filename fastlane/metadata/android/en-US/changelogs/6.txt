@@ -1,5 +1,0 @@
-• Multi-select delete for bulk message cleanup.
-• Auto-scroll to newest message on incoming SMS.
-• Increased inbox capacity to 10,000 messages.
-• Anti-evasion defense: strips invisible zero-width characters to prevent filter bypass.
-• Fixed master toggle logging behavior.

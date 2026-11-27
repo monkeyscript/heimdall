@@ -1,2 +1,0 @@
-• Stacked sender threads: consecutive messages from the same sender now group into expandable cards.
-• Updated F-Droid listing and metadata links.

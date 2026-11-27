@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.heimdall.app"
+    namespace = "com.messagate.app"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.heimdall.app"
+        applicationId = "com.messagate.app"
         minSdk = 26
         targetSdk = 34
         versionCode = 7
@@ -26,10 +26,11 @@ android {
         includeInBundle = false
     }
 
-    val releaseKeystore = rootProject.file("heimdall-release.jks")
+    val releaseKeystore = rootProject.file("messagate-release.jks").takeIf { it.exists() }
+        ?: rootProject.file("heimdall-release.jks")
     val keystorePassword = System.getenv("KEYSTORE_PASSWORD")
     val keyPassword = System.getenv("KEY_PASSWORD")
-    val keyAlias = System.getenv("KEY_ALIAS") ?: "heimdall"
+    val keyAlias = System.getenv("KEY_ALIAS") ?: "messagate"
 
     signingConfigs {
         if (releaseKeystore.exists() && !keystorePassword.isNullOrBlank() && !keyPassword.isNullOrBlank()) {
@@ -61,7 +62,7 @@ android {
         outputs.all {
             val output = this as? com.android.build.gradle.internal.api.BaseVariantOutputImpl
             if (variant.buildType.name == "release") {
-                output?.outputFileName = "Heimdall-v${variant.versionName}.apk"
+                output?.outputFileName = "Messagate-v${variant.versionName}.apk"
             }
         }
     }
@@ -74,6 +75,10 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 }
 
@@ -94,4 +99,6 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    testImplementation("junit:junit:4.13.2")
 }

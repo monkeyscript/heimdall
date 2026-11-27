@@ -6,19 +6,20 @@
     <uses-permission android:name="android.permission.RECEIVE_MMS" />
     <uses-permission android:name="android.permission.RECEIVE_WAP_PUSH" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:allowBackup="false"
-        android:icon="@drawable/ic_heimdall_eye"
-        android:label="Heimdall"
-        android:roundIcon="@drawable/ic_heimdall_eye"
+        android:icon="@drawable/ic_messagate_logo"
+        android:label="Messagate"
+        android:roundIcon="@drawable/ic_messagate_logo"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Heimdall.Splash">
+        android:theme="@style/Theme.Messagate.Splash">
         
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.Heimdall.Splash">
+            android:theme="@style/Theme.Messagate.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -59,7 +60,7 @@
             android:name=".receiver.CopyOtpReceiver"
             android:exported="false">
             <intent-filter>
-                <action android:name="com.heimdall.app.ACTION_COPY_OTP" />
+                <action android:name="com.messagate.app.ACTION_COPY_OTP" />
             </intent-filter>
         </receiver>
 

@@ -1,5 +1,0 @@
-• Removed unnecessary SEND_SMS permission.
-• Fixed potential logcat data leak.
-• Safer message deletion handling.
-• Signing configuration moved to environment variables.
-• Updated F-Droid metadata.

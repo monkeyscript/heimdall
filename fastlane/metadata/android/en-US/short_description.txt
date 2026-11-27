@@ -1,1 +1,0 @@
-On-device, privacy-first SMS spam blocker with custom keyword rules.

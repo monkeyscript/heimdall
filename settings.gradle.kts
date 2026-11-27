@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "heimdall"
+rootProject.name = "messagate"
 include(":app")

@@ -1,8 +1,0 @@
-Initial release.
-
-• Silent spam interception as default SMS app.
-• Custom keyword blocklist.
-• Message categories (Bank, Card, Delivery, Travel, OTP).
-• 1-tap OTP copy from notifications.
-• 30-day automatic spam cleanup.
-• 100% offline — zero internet permission.
